@@ -162,7 +162,7 @@ public class EventManager : MonoBehaviour
 
     //Multi language support
     //en, fr
-    string lang = "fr";
+    string lang = "en";
     SimpleJSON.JSONNode multi;
 
     // Start is called before the first frame update
@@ -516,6 +516,31 @@ public class EventManager : MonoBehaviour
     try
         {
             Init_Tasks();
+
+            // Add this inside UpdateInstructions(...) just after Init_Tasks();
+            string Render(SimpleJSON.JSONNode n)
+            {
+                if (n == null) return "";
+
+                // Old backend sometimes sent plain strings: keep that working.
+                if (n.IsString)
+                    return InstructionFinder.FindByTag(n.Value, lang);
+
+                // New backend shape: { "hintType": "...", "hintParameter": "..." }
+                string tag = n["hintType"]?.Value;
+                string text = string.IsNullOrWhiteSpace(tag) ? "" : InstructionFinder.FindByTag(tag, lang);
+
+                string param = n["hintParameter"]?.Value;
+                if (!string.IsNullOrWhiteSpace(param))
+                {
+                    if (string.IsNullOrWhiteSpace(text)) return param;
+                    if (text.Contains("{param}")) return text.Replace("{param}", param);
+                    if (text.Contains("{value}")) return text.Replace("{value}", param);
+                    return $"{text}: {param}";
+                }
+
+                return text ?? "";
+            }
             
             if (obj["cprNurseHintsModel"] == null) {
                 
@@ -524,11 +549,15 @@ public class EventManager : MonoBehaviour
                 Debug.Log(instrunctions);
 
                 for(int i = 0; i < instrunctions.Count; i++)
-                {
+                {   
+                    /* Old Code below
                     string instruction = instrunctions[i];
                     if (!String.IsNullOrWhiteSpace(instruction)) {
                         instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
+                    */
+                    string instruction = Render(instrunctions[i]);
+                    
                     if (i == 0) {
                         if (Nurse_Cur_1 != null) {
                             Nurse_Cur_1.text = instruction.Replace("1)", "•");
@@ -560,11 +589,15 @@ public class EventManager : MonoBehaviour
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["nextStepHints"];
 
                 for(int i = 0; i < instrunctions.Count; i++)
-                {
+                {   
+                    /* Old code below
                     string instruction = instrunctions[i];
                     if (!String.IsNullOrWhiteSpace(instruction)) {
                         instruction = InstructionFinder.FindByTag(instruction, lang);                    
                     }
+                    */
+                    string instruction = Render(instrunctions[i]);
+
                     if (i == 0) {
                         if (Nurse_Next_1 != null) {
                             Nurse_Next_1.text = instruction.Replace("1)", "•");
@@ -596,11 +629,14 @@ public class EventManager : MonoBehaviour
                 SimpleJSON.JSONNode instrunctions = obj["cprLeaderHintsModel"]["primaryHints"];
 
                 for(int i = 0; i < instrunctions.Count; i++)
-                {
+                {   
+                    /*Old code below
                     string instruction = instrunctions[i];
                     if (!String.IsNullOrWhiteSpace(instruction)) {
                         instruction = InstructionFinder.FindByTag(instruction, lang);                    
                     }
+                    */
+                    string instruction = Render(instrunctions[i]);
 
                     if (i == 0) {
                         if (Doc_Cur_1 != null) {
@@ -633,13 +669,16 @@ public class EventManager : MonoBehaviour
                 SimpleJSON.JSONNode instrunctions = obj["cprLeaderHintsModel"]["nextStepHints"];
 
                 for(int i = 0; i < instrunctions.Count; i++)
-                {
+                {   
+                    /*Old code below
                     string instruction = instrunctions[i];
                     
                     if (!String.IsNullOrWhiteSpace(instruction)) {
                         instruction = InstructionFinder.FindByTag(instruction, lang);                    
                     }
-
+                    */
+                    string instruction = Render(instrunctions[i]);
+                    
                     if (i == 0) {
                         if (Doc_Next_1 != null) {
                             Doc_Next_1.text = instruction.Replace("1)", "•");
