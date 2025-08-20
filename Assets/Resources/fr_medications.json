@@ -1,0 +1,389 @@
+{
+    "medicationModels": [
+        {
+            "id": 1,
+            "label": "AMIODARONE",
+            "doses": [
+                {
+                    "id": 1,
+                    "label": "5 mg/kg = 125 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 2,
+            "label": "ATROPINE",
+            "doses": [
+                {
+                    "id": 2,
+                    "label": "0.02 mg/kg = 0.5 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 3,
+            "label": "CALCIUM_CHLORIDE",
+            "doses": [
+                {
+                    "id": 3,
+                    "label": "20 mg/kg = 500 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 4,
+            "label": "CALCIUM_GLUCONATE",
+            "doses": [
+                {
+                    "id": 4,
+                    "label": "60 mg/kg = 1500 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 5,
+                    "label": "100 mg/kg = 2500 mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 5,
+            "label": "EPINEPHRINE",
+            "doses": [
+                {
+                    "id": 6,
+                    "label": "0.01 mg/kg = 0.25 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 6,
+            "label": "ETOMIDATE",
+            "doses": [
+                {
+                    "id": 7,
+                    "label": "0.2 mg/kg = 5 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 8,
+                    "label": "0.4 mg/kg = 10mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 7,
+            "label": "FENTANYL",
+            "doses": [
+                {
+                    "id": 9,
+                    "label": "2 mcg/kg = 50 mcg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 10,
+                    "label": "1 mcg/kg = 25 mcg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 11,
+                    "label": "4 mcg/kg = 100 mcg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 12,
+                    "label": "5 mcg/kg = 125 mcg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 8,
+            "label": "GLUCOSE_D10W",
+            "doses": [
+                {
+                    "id": 13,
+                    "label": "5 mL/kg = 125mL",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 9,
+            "label": "INSULIN",
+            "doses": [
+                {
+                    "id": 14,
+                    "label": "0.1 U/kg = 25 U",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 10,
+            "label": "KCI",
+            "doses": [
+                {
+                    "id": 15,
+                    "label": "1 mEq/kg IV/IO over 60min (max 20 mEq/h)",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 11,
+            "label": "KETAMINE",
+            "doses": [
+                {
+                    "id": 16,
+                    "label": "2 mg/kg = 50mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 17,
+                    "label": "1 mg/kg = 25 mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 12,
+            "label": "LIDOCAINE",
+            "doses": [
+                {
+                    "id": 18,
+                    "label": "1 mg/kg = 25 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 13,
+            "label": "MIDAZOLAM",
+            "doses": [
+                {
+                    "id": 19,
+                    "label": "0.1 mg/kg = 2.5mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 20,
+                    "label": "0.2 mg/kg = 5 mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 14,
+            "label": "MORPHINE",
+            "doses": [
+                {
+                    "id": 21,
+                    "label": "0.1 mg/kg = 2.5 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 22,
+                    "label": "0.05 mg/kg = 1.25 mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 15,
+            "label": "NS",
+            "doses": [
+                {
+                    "id": 23,
+                    "label": "20 ml/kg = 500 ml",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 16,
+            "label": "ROCURONIUM",
+            "doses": [
+                {
+                    "id": 24,
+                    "label": "1 mg/kg = 25 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 17,
+            "label": "SALBUTAMOL",
+            "doses": [
+                {
+                    "id": 25,
+                    "label": "0.03ml/kg = 0.75 ml",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 18,
+            "label": "SODIUM_BICARBONATE",
+            "doses": [
+                {
+                    "id": 26,
+                    "label": "1 mEq/kg = 25 mEq",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 27,
+                    "label": "1.5 mEq/kg = 37 mEq",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 28,
+                    "label": "2 mEq/kg = 50 mEq",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        },
+        {
+            "id": 19,
+            "label": "SUCCINYLCHOLINE",
+            "doses": [
+                {
+                    "id": 29,
+                    "label": "1 mg/kg = 25 mg",
+                    "advised": true,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                },
+                {
+                    "id": 30,
+                    "label": "2 mg/kg = 50 mg",
+                    "advised": false,
+                    "preparingCounter": 0,
+                    "readyCounter": 0,
+                    "doneCounter": 0,
+                    "doseInstances": []
+                }
+            ]
+        }
+    ],
+    "flatDoseInstances": []
+}

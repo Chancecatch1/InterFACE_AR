@@ -1,0 +1,22 @@
+[
+    { "id": "CPR_1", "label": "CPR_1", "top": "10", "left": "41", "type": "label" },
+    { "id": "CHECK_PACE_1", "label": "CHECK_PACE_1", "top": "18", "left": "31", "type": "pointer" },
+    { "id": "VP_PVT", "label": "VP_PVT", "top": "24", "left": "15", "type": "label" },
+    { "id": "CHOC_1", "label": "CHOC_1", "top": "31", "left": "14", "type": "label" },
+    { "id": "CPR_2", "label": "CPR_2", "top": "38.5", "left": "14", "type": "label" },
+    { "id": "CHECK_PACE_PULSE_2", "label": "CHECK_PACE_PULSE_2", "top": "46.5", "left": "5", "type": "pointer" },
+    { "id": "CHOC_2", "label": "CHOC_2", "top": "55", "left": "14", "type": "label" },
+    { "id": "CPR_3", "label": "CPR_3", "top": "62", "left": "6", "width": "34", "type": "label" },
+    { "id": "CHECK_PACE_PULSE_3", "label": "CHECK_PACE_PULSE_3", "top": "72", "left": "5", "type": "pointer" },
+    { "id": "CHOC_3", "label": "CHOC_3", "top": "80", "left": "14", "type": "label" },
+    { "id": "CPR_4", "label": "CPR_4", "top": "88", "left": "9", "width": "29" ,"type": "label" },
+    { "id": "ASYSTOLIE", "label": "ASYSTOLIE", "top": "24", "left": "64", "type": "label" },
+    { "id": "EPINEPHRINE", "label": "EPINEPHRINE", "top": "31", "left": "62", "type": "label" },
+    { "id": "CPR_5", "label": "CPR_5", "top": "38", "left": "58", "width": "34", "type": "label" },
+    { "id": "CHECK_PACE_PULSE_4", "label": "CHECK_PACE_PULSE_4", "top": "48", "left": "56", "type": "pointer" },
+    { "id": "CPR_6", "label": "CPR_6", "top": "56", "left": "67", "type": "label" },
+    { "id": "CHECK_PACE_PULSE_5", "label": "CHECK_PACE_PULSE_5", "top": "64", "left": "56", "type": "pointer" },
+    { "id": "CHOC_4", "label": "CHOC_4", "top": "88.5", "left": "69", "type": "label" },
+    { "id": "ASYSTOLIE", "label": "ASYSTOLIE", "top": "74", "left": "53", "type": "label" },
+    { "id": "ROSC", "label": "ROSC", "top": "80", "left": "53", "type": "label" }
+  ]

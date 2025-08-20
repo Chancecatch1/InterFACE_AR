@@ -1,0 +1,26 @@
+{
+    "MEDICATION": {
+        "TITLE": "Medication",
+        "TITLE_PLURIAL": "Medications",
+        "AMIODARONE": "Amiodarone",
+        "ATROPINE": "Atropine",
+        "CALCIUM_CHLORIDE": "10% Calcium chloride",
+        "CALCIUM_GLUCONATE": "10% Calcium gluconate",
+        "EPINEPHRINE": "Epinephrine",
+        "ETOMIDATE": "Etomidate",
+        "FENTANYL": "Fentanyl",
+        "GLUCOSE_D10W": "Glucose D10W (starting dose)",
+        "INSULIN": "Insulin (starting dose)",
+        "KCI": "KCI (Potassium chloride)",
+        "KETAMINE": "Ketamine",
+        "LIDOCAINE": "Lidocaine",
+        "MIDAZOLAM": "Midazolam",
+        "MORPHINE": "Morphine",
+        "NS": "NS",
+        "ROCURONIUM": "Rocuronium",
+        "SALBUTAMOL": "Salbutamol (Albuterol)",
+        "SODIUM_BICARBONATE": "8.4% Sodium bicarbonate",
+        "SUCCINYLCHOLINE": "Succinylcholine"
+  }
+}
+

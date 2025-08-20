@@ -1,0 +1,15 @@
+{
+    "VERBALLY_PREVIEW": "Verbally preview steps for defibrillation",
+    "Resume CPR_AND_ENSURE": "Resume CPR & ensure active CPR Coaching",
+    "DEFIBRILLATE_4J": "Defibrillate 4J/kg",
+    "PREPARE_Defibrillate 4J/kg": "Prepare for defibrillation 4J/kg",
+    "RESUME_CPR": "Resume CPR",
+    "REVIEW_HS_TS": "Review Hs and Ts",
+    "CONTINUE_CPR_2_MINUTES": "Continue CPR for 2 minutes",
+    "ENSURE_ACTIVE_CPR": "Ensure active CPR Coaching",
+    "CHECK_CARDIAC_RYTHM": "Check cardiac rhythm",
+    "SWITCH_CPR_PROVIDERS": "Switch CPR providers",
+    "CHECK_PULSE": "Check pulse",
+    "PREPARE_SECOND_PROVIDER": "Prepare 2nd CPR provider",
+    "INSERT_SECOND_IO": "Insert second IO"
+}
