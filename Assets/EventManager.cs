@@ -1483,20 +1483,29 @@ public class EventManager : MonoBehaviour
                             if (AmiCount != null) {
                                 AmiCount.text = val.ToString();
                             }
-                            if (preVal > 0) {
+                            // INSERT: Amiodarone highlight (mj)
+                            // HighlightAmiodaroneOrder(val > 0); // if Amiodarone is READY
+
+                            // dose label (example: 5 mg/kg = 330 mg)
+                            // string doseLabel = _doses["label"];
+
+                            // if Amiodarone is PREPARING, show in Orders with highlight
+                            if (preVal > 0 || val > 0) {
                                 resCount++;
                                 if (Nurse_Cur_1 != null && iii == 0) {
-                                    Nurse_Cur_1.text = FindMultiLang("Amiodarone") + " 125 mg";
+                                    Nurse_Cur_1.text = FindMultiLang("Amiodarone") + " 125mg";
                                     iii++;
                                 } else if (Nurse_Cur_2 != null && iii == 1) {
-                                    Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125 mg";
+                                    Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg";
                                     iii++;
                                 } else if (Nurse_Cur_3 != null && iii == 2) {
-                                    Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125 mg";
+                                    Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg";
                                     iii++;
                                 }
                             }
+                            BlinkAmiodaroneOrder(val > 0); // if Amiodarone is READY  
                         }
+
                         if (medID == 2) {
                             if (AtroCount == null && GameObject.FindWithTag("AtroCount") != null) {
                                 AtroCount = GameObject.FindWithTag("AtroCount").GetComponent<TextMeshProUGUI>();
@@ -2338,5 +2347,71 @@ public class EventManager : MonoBehaviour
         File.AppendAllText(filePath, logEntry + "\n");
 
         Debug.Log("Logged: " + logEntry);
+    }
+
+    // INSERT: Amiodarone highlight (mj)
+    void ApplyOrderHighlight(TMPro.TextMeshProUGUI t, string key, bool on)
+    {
+        if (t == null || string.IsNullOrEmpty(t.text)) return;
+        if (t.text.IndexOf(key, System.StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            t.fontStyle = on ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
+            t.color = on ? new Color(1f, 0.95f, 0.6f, 1f) : Color.white;
+        }
+    }
+
+    void HighlightAmiodaroneOrder(bool on)
+    {
+        string key = FindMultiLang("Amiodarone");
+        ApplyOrderHighlight(Nurse_Cur_1, key, on);
+        ApplyOrderHighlight(Nurse_Cur_2, key, on);
+        ApplyOrderHighlight(Nurse_Cur_3, key, on);
+        ApplyOrderHighlight(Nurse_Next_1, key, on);
+        ApplyOrderHighlight(Nurse_Next_2, key, on);
+        ApplyOrderHighlight(Nurse_Next_3, key, on);
+    }
+
+    // INSERT: Amiodarone blink (mj)
+    Dictionary<TMPro.TextMeshProUGUI, Coroutine> _blink = new();
+
+    IEnumerator BlinkText(TMPro.TextMeshProUGUI t, Color a, Color b, float period)
+    {
+        while (true)
+        {
+            t.color = a; yield return new WaitForSeconds(period * 0.5f);
+            t.color = b; yield return new WaitForSeconds(period * 0.5f);
+        }
+    }
+
+    void SetBlink(TMPro.TextMeshProUGUI t, bool on, Color a, Color b, float period = 0.6f)
+    {
+        if (t == null) return;
+        if (on)
+        {
+            if (!_blink.ContainsKey(t))
+                _blink[t] = StartCoroutine(BlinkText(t, a, b, period));
+        }
+        else
+        {
+            if (_blink.TryGetValue(t, out var c))
+            {
+                StopCoroutine(c);
+                _blink.Remove(t);
+                t.color = Color.white;
+            }
+        }
+    }
+
+    void BlinkAmiodaroneOrder(bool on)
+    {
+        string key = FindMultiLang("Amiodarone");
+        void Apply(TMPro.TextMeshProUGUI x)
+        {
+            if (x == null || string.IsNullOrEmpty(x.text)) return;
+            bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
+            SetBlink(x, on && match, new Color(1f, 0.95f, 0.6f, 1f), Color.white, 0.5f); // yellow <-> white, 0.5f = period
+        }
+        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
+        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
     }
 }
