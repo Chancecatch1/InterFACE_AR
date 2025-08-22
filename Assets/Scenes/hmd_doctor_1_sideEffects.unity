@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.18028378, g: 0.22571412, b: 0.30692285, a: 1}
+  m_IndirectSpecularColor: {r: 0, g: 0, b: 0, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -4636,6 +4636,7 @@ MonoBehaviour:
   notiCprPref: {fileID: 1863267544593702818, guid: 42999b4e0de6b15488c3eaef3b14404b, type: 3}
   notiEpiPref: {fileID: 7554144904821398771, guid: e4527f31524a5da47a95f1d581df3f42, type: 3}
   notiMedPref: {fileID: 6836718503012399914, guid: 59becebaae150d04080cb690b588f78d, type: 3}
+  sessionPref: {fileID: 0}
 --- !u!4 &2025867566
 Transform:
   m_ObjectHideFlags: 0

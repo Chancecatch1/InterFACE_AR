@@ -30,6 +30,13 @@ public class EventManager : MonoBehaviour
 {
     private Queue<Action> m_queueAction = new Queue<Action>();
     private float timeActivated = float.MinValue;
+    // Add a deduplication set at class scope (mj)
+    HashSet<string> _confirmedOnce = new HashSet<string>();
+    float _amioBlinkSuppressUntil = 0f;
+
+    // public Transform head;
+    // public Transform origin;
+    // public Transform target;
 
     // public Transform head;
     // public Transform origin;
@@ -1208,6 +1215,7 @@ public class EventManager : MonoBehaviour
             }
         }
 
+        // Detect Confirmation of Medication (mj)
         SimpleJSON.JSONNode cprMedicationModel = response["cprMedicationModel"];
         if (cprMedicationModel != null) {
             StartCoroutine(medicationInitialize(MedicationFinder.getProcessId()));
@@ -1233,9 +1241,53 @@ public class EventManager : MonoBehaviour
                         }
                     }
             }
-            // m_queueAction.Enqueue(() => medication(cprMedicationModel));
+
+            // CONFIRM event detection (DONE + latest)
+            if (meds != null) {
+                foreach (SimpleJSON.JSONNode med in meds) {
+                    string medIdStr = med["id"];
+                    int medIdNum = med["id"];
+                    var medinfo = MedicationFinder.FindByTag(medIdStr, lang);
+                    string medName = medinfo[0];
+                    string defaultDose = medinfo[1];
+
+                    if (med["doses"] == null) continue;
+                    foreach (SimpleJSON.JSONNode dose in med["doses"]) {
+                        string last = dose["lastInjectionTime"];
+                        if (string.IsNullOrEmpty(last)) continue;
+
+                        string doseIdStr = dose["id"];
+                        SimpleJSON.JSONNode diArr = dose["doseInstances"];
+                        if (diArr == null) continue;
+
+                        foreach (SimpleJSON.JSONNode di in diArr) {
+                            string status = di["status"];
+                            string inj = di["injectionTime"];
+                            if (status == "DONE" && inj == last) {
+                                string key = medIdStr + ":" + doseIdStr + ":" + inj;
+                                if (_confirmedOnce.Add(key)) {
+                                    string doseLabel = dose["label"];
+                                    if (doseLabel == null) doseLabel = defaultDose;
+
+                                    bool isAmio = false;
+                                    try { isAmio = medIdNum == 1; } catch {}
+
+                                    bool callUpdateNoti = meds.Count > 1; // avoid duplicate noti with the single-med branch
+                                    m_queueAction.Enqueue(() => {
+                                        if (isAmio) _amioBlinkSuppressUntil = Time.time + 1.0f; // suppress blink
+                                        if (isAmio) BlinkAmiodaroneOrder(false);
+                                        ConfirmFlashOrderDisplay(medName); // green flash
+                                        if (callUpdateNoti) UpdateNoti(medName, doseLabel, 0);
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        
+        // m_queueAction.Enqueue(() => medication(cprMedicationModel));
+    
         SimpleJSON.JSONNode cprTimersModel = cprProtocolModel["cprTimersModel"];
 
         Debug.Log(cprTimersModel);
@@ -1490,20 +1542,14 @@ public class EventManager : MonoBehaviour
                             // string doseLabel = _doses["label"];
 
                             // if Amiodarone is PREPARING, show in Orders with highlight
+
                             if (preVal > 0 || val > 0) {
                                 resCount++;
-                                if (Nurse_Cur_1 != null && iii == 0) {
-                                    Nurse_Cur_1.text = FindMultiLang("Amiodarone") + " 125mg";
-                                    iii++;
-                                } else if (Nurse_Cur_2 != null && iii == 1) {
-                                    Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg";
-                                    iii++;
-                                } else if (Nurse_Cur_3 != null && iii == 2) {
-                                    Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg";
-                                    iii++;
+                                if (Nurse_Cur_1 != null && iii == 0) { Nurse_Cur_1.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
+                                else if (Nurse_Cur_2 != null && iii == 1) { Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
+                                else if (Nurse_Cur_3 != null && iii == 2) { Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 }
-                            }
-                            BlinkAmiodaroneOrder(val > 0); // if Amiodarone is READY  
+                                BlinkAmiodaroneOrder(val > 0 && Time.time >= _amioBlinkSuppressUntil); // if Amiodarone is READY
                         }
 
                         if (medID == 2) {
@@ -2349,6 +2395,34 @@ public class EventManager : MonoBehaviour
         Debug.Log("Logged: " + logEntry);
     }
 
+    // CONFIRM: name-based green color on Medication Orders (mj)
+    void ConfirmFlashOrderDisplay(string medDisplayName, float seconds = 1.6f)
+    {
+        void Apply(TMPro.TextMeshProUGUI t)
+        {
+            if (t == null || string.IsNullOrEmpty(t.text)) return;
+            if (t.text.IndexOf(medDisplayName, System.StringComparison.OrdinalIgnoreCase) < 0) return;
+            t.fontStyle = TMPro.FontStyles.Normal;
+            t.color = new Color(0.30f, 0.95f, 0.30f, 1f);
+        }
+        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
+        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
+    }
+
+    IEnumerator FlashGreen(TMPro.TextMeshProUGUI t, float seconds)
+    {
+        var origColor = t.color;
+        var origStyle = t.fontStyle;
+
+        t.fontStyle = TMPro.FontStyles.Bold;
+        t.color = new Color(0.60f, 1f, 0.60f, 1f);
+
+        yield return new WaitForSeconds(seconds);
+
+        t.color = origColor;
+        t.fontStyle = origStyle;
+    }
+
     // INSERT: Amiodarone highlight (mj)
     void ApplyOrderHighlight(TMPro.TextMeshProUGUI t, string key, bool on)
     {
@@ -2409,7 +2483,8 @@ public class EventManager : MonoBehaviour
         {
             if (x == null || string.IsNullOrEmpty(x.text)) return;
             bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
-            SetBlink(x, on && match, new Color(1f, 0.95f, 0.6f, 1f), Color.white, 0.5f); // yellow <-> white, 0.5f = period
+            // Use a more distinct yellow and a strong orange for clearer differentiation
+            SetBlink(x, on && match, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
         }
         Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
         Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);

@@ -38,7 +38,7 @@ RenderSettings:
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
   m_Sun: {fileID: 705507994}
-  m_IndirectSpecularColor: {r: 0.18028378, g: 0.22571412, b: 0.30692285, a: 1}
+  m_IndirectSpecularColor: {r: 0, g: 0, b: 0, a: 1}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -2286,6 +2286,13 @@ MonoBehaviour:
   LidocaineImg: {fileID: 363362513}
   KetamineImg: {fileID: 1825974084}
   FentanylImg: {fileID: 1686989435}
+  AmiodaroneCount: {fileID: 0}
+  CalciumGluconateCount: {fileID: 0}
+  CalciumChlorideCount: {fileID: 0}
+  EpinephrineCount: {fileID: 0}
+  LidocaineCount: {fileID: 0}
+  KetamineCount: {fileID: 0}
+  FentanylCount: {fileID: 0}
   TextureReady: {fileID: 2800000, guid: 3474824018db0d64cb67ddf3b7dd0a6d, type: 3}
   TextureNotReady: {fileID: 2800000, guid: 796244750fef94e4c84aa6811b3a72a8, type: 3}
 --- !u!4 &402955511
@@ -8899,8 +8906,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2823a022f85e67249b248a564d8a633a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  timer1: {fileID: 0}
-  timer2: {fileID: 562486029}
 --- !u!4 &1178998353
 Transform:
   m_ObjectHideFlags: 0
@@ -14584,6 +14589,24 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cd7f240aac38c904cb9a3792ed8d44ff, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  mat:
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  - {fileID: 0}
+  notiCprPref: {fileID: 0}
+  notiEpiPref: {fileID: 0}
+  notiMedPref: {fileID: 0}
+  sessionPref: {fileID: 0}
 --- !u!4 &2025867566
 Transform:
   m_ObjectHideFlags: 0
