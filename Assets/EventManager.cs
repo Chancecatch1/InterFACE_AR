@@ -33,6 +33,7 @@ public class EventManager : MonoBehaviour
     // Add a deduplication set at class scope (mj)
     HashSet<string> _confirmedOnce = new HashSet<string>();
     float _amioBlinkSuppressUntil = 0f;
+    float _epiBlinkSuppressUntil = 0f; //mj
 
     // public Transform head;
     // public Transform origin;
@@ -1271,11 +1272,15 @@ public class EventManager : MonoBehaviour
 
                                     bool isAmio = false;
                                     try { isAmio = medIdNum == 1; } catch {}
+                                    bool isEpi = false; // mj
+                                    try { isEpi = medIdNum == 5; } catch {}
 
                                     bool callUpdateNoti = meds.Count > 1; // avoid duplicate noti with the single-med branch
                                     m_queueAction.Enqueue(() => {
                                         if (isAmio) _amioBlinkSuppressUntil = Time.time + 1.0f; // suppress blink
                                         if (isAmio) BlinkAmiodaroneOrder(false);
+                                        if (isEpi) _epiBlinkSuppressUntil = Time.time + 1.0f; // suppress blink (mj)
+                                        if (isEpi) BlinkEpinephrineOrder(false);
                                         ConfirmFlashOrderDisplay(medName); // green flash
                                         if (callUpdateNoti) UpdateNoti(medName, doseLabel, 0);
                                     });
@@ -1549,7 +1554,17 @@ public class EventManager : MonoBehaviour
                                 else if (Nurse_Cur_2 != null && iii == 1) { Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 else if (Nurse_Cur_3 != null && iii == 2) { Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 }
-                                BlinkAmiodaroneOrder(val > 0 && Time.time >= _amioBlinkSuppressUntil); // if Amiodarone is READY
+                                // Blink only if any instance is READY; otherwise ensure normal (white/normal) (mj)
+                                {
+                                    SimpleJSON.JSONNode medNode1 = storedMedJson[i];
+                                    bool amioReady = MedHasStatus(medNode1, "READY");
+                                    bool amioPreparing = MedHasAnyPreparing(medNode1);
+                                    BlinkAmiodaroneOrder(amioReady && Time.time >= _amioBlinkSuppressUntil);
+                                    if (!amioReady) {
+                                        // PREPARING or none -> revert to normal
+                                        SetOrderNormalFor(FindMultiLang("Amiodarone"));
+                                    }
+                                }
                         }
 
                         if (medID == 2) {
@@ -1580,7 +1595,7 @@ public class EventManager : MonoBehaviour
                             if (EpiCount != null) {
                                 EpiCount.text = val.ToString();
                             }
-                            if (preVal > 0) {
+                            if (preVal > 0 || val > 0) { // (mj)
                                 resCount++;
                                 if (Nurse_Cur_1 != null && iii == 0) {
                                     Nurse_Cur_1.text = FindMultiLang("Epinephrine") + " 0.25 mg";
@@ -1591,6 +1606,16 @@ public class EventManager : MonoBehaviour
                                 } else if (Nurse_Cur_3 != null && iii == 2) {
                                     Nurse_Cur_3.text = FindMultiLang("Epinephrine") + " 0.25 mg";
                                     iii++;
+                                }
+                            }
+                            // Blink only if any instance is READY; otherwise ensure normal (white/normal)
+                            {
+                                SimpleJSON.JSONNode medNode5 = storedMedJson[i];
+                                bool epiReady = MedHasStatus(medNode5, "READY");
+                                bool epiPreparing = MedHasAnyPreparing(medNode5);
+                                BlinkEpinephrineOrder(epiReady && Time.time >= _epiBlinkSuppressUntil);
+                                if (!epiReady) {
+                                    SetOrderNormalFor(FindMultiLang("Epinephrine"));
                                 }
                             }
                         }
@@ -2269,34 +2294,35 @@ public class EventManager : MonoBehaviour
             StartCoroutine(togglePen1Sec());
             Debug.Log("There");
             FontIconSelector fis = GameObject.FindWithTag("PenToggle").transform.GetChild(2).transform.GetChild(0).transform.GetChild(0).transform.GetChild(1).GetComponent<FontIconSelector>();
-            GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
-            GameObject tst = GameObject.FindWithTag("TeamScreenText");
-            if (tsc != null) {
-                CanvasElementRoundedRect cer = tsc.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = tst.GetComponent<TextMeshProUGUI>();
+            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on untogglePenMode (mj)
+            // GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
+            // GameObject tst = GameObject.FindWithTag("TeamScreenText");
+            // if (tsc != null) {
+            //     CanvasElementRoundedRect cer = tsc.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = tst.GetComponent<TextMeshProUGUI>();
 
-                cer.enabled = true;
-                tmpug.enabled = true;
-            }
+            //     cer.enabled = true;
+            //     tmpug.enabled = true;
+            // }
 
-            GameObject bcvs = GameObject.FindWithTag("BedCanvas");
-            GameObject bt = GameObject.FindWithTag("BedText");
-            if (bcvs != null) {
-                CanvasElementRoundedRect cer = bcvs.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = bt.GetComponent<TextMeshProUGUI>();
+            // GameObject bcvs = GameObject.FindWithTag("BedCanvas");
+            // GameObject bt = GameObject.FindWithTag("BedText");
+            // if (bcvs != null) {
+            //     CanvasElementRoundedRect cer = bcvs.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = bt.GetComponent<TextMeshProUGUI>();
 
-                cer.enabled = true;
-                tmpug.enabled = true;
-            }
+            //     cer.enabled = true;
+            //     tmpug.enabled = true;
+            // }
 
-            GameObject mcvs = GameObject.FindWithTag("MonitorCanvas");
-            GameObject mt = GameObject.FindWithTag("MonitorText");
-            if (mcvs != null) {
-                CanvasElementRoundedRect cer = mcvs.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = mt.GetComponent<TextMeshProUGUI>();
-                cer.enabled = true;                
-                tmpug.enabled = true;
-            }
+            // GameObject mcvs = GameObject.FindWithTag("MonitorCanvas");
+            // GameObject mt = GameObject.FindWithTag("MonitorText");
+            // if (mcvs != null) {
+            //     CanvasElementRoundedRect cer = mcvs.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = mt.GetComponent<TextMeshProUGUI>();
+            //     cer.enabled = true;                
+            //     tmpug.enabled = true;
+            // }
 
 
             fis.CurrentIconName = "Icon 138";
@@ -2434,6 +2460,44 @@ public class EventManager : MonoBehaviour
         }
     }
 
+    void SetOrderNormalFor(string medDisplayName) // mj
+    {
+        void Apply(TMPro.TextMeshProUGUI t)
+        {
+            if (t == null || string.IsNullOrEmpty(t.text)) return;
+            if (t.text.IndexOf(medDisplayName, System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                t.fontStyle = TMPro.FontStyles.Normal;
+                t.color = Color.white;
+            }
+        }
+        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
+        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
+    }
+
+    bool MedHasStatus(SimpleJSON.JSONNode medNode, string status)
+    {
+        try
+        {
+            if (medNode == null || medNode["doses"] == null) return false;
+            foreach (SimpleJSON.JSONNode dose in medNode["doses"]) {
+                var diArr = dose["doseInstances"];
+                if (diArr == null) continue;
+                foreach (SimpleJSON.JSONNode di in diArr) {
+                    string st = di["status"];
+                    if (st == status) return true;
+                }
+            }
+        }
+        catch {}
+        return false;
+    }
+
+    bool MedHasAnyPreparing(SimpleJSON.JSONNode medNode)
+    {
+        return MedHasStatus(medNode, "PREPARING") || MedHasStatus(medNode, "AUTO_PREPARING");
+    }
+
     void HighlightAmiodaroneOrder(bool on)
     {
         string key = FindMultiLang("Amiodarone");
@@ -2483,8 +2547,28 @@ public class EventManager : MonoBehaviour
         {
             if (x == null || string.IsNullOrEmpty(x.text)) return;
             bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
-            // Use a more distinct yellow and a strong orange for clearer differentiation
-            SetBlink(x, on && match, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
+            if (match) // mj
+            {
+                // Use a more distinct yellow and a strong orange for clearer differentiation
+                SetBlink(x, on, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
+            }
+        }
+        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
+        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
+    }
+
+    void BlinkEpinephrineOrder(bool on) // (mj)
+    {
+        string key = FindMultiLang("Epinephrine");
+        void Apply(TMPro.TextMeshProUGUI x)
+        {
+            if (x == null || string.IsNullOrEmpty(x.text)) return;
+            bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
+            if (match) // mj
+            {
+                // Reuse the same blink colors and period as Amiodarone
+                SetBlink(x, on, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
+            }
         }
         Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
         Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);

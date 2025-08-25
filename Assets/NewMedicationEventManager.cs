@@ -153,10 +153,35 @@ public class MedicationEvent : MonoBehaviour
                     if ((string) med["id"] == medicationId) {
                         foreach(SimpleJSON.JSONNode doses in med["doses"]) {
                             if ((string) doses["id"] == doseId) {
-                                foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
-                                    if (di["status"] == "PREPARING" && di["autoPrescribed"] == false) {
-                                        StartCoroutine(minusMedications(medicationId, doseId, di["id"]));
-                                        break;
+                                // OLD (mj prev): cancel only when PREPARING or READY and autoPrescribed == false
+                                // foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
+                                //     // Allow cancel when instance is PREPARING or already set to READY (after plus / mj)
+                                //     string st = di["status"];
+                                //     bool auto = false;
+                                //     try { auto = di["autoPrescribed"]; } catch {}
+                                //     if ((st == "PREPARING" || st == "READY") && auto == false) {
+                                //         StartCoroutine(minusMedications(medicationId, doseId, di["id"]));
+                                //         break;
+                                //     }
+                                // }
+
+                                // NEW: also allow AUTO_PREPARING and drop autoPrescribed filter; add debug logs
+                                {
+                                    bool issued = false;
+                                    foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
+                                        string st = di["status"];
+                                        string idStr = di["id"];
+                                        bool auto = false;
+                                        try { auto = di["autoPrescribed"]; } catch {}
+                                        Debug.Log($"preMinus di status={st}, autoPrescribed={auto}, id={idStr}");
+                                        if (st == "PREPARING" || st == "AUTO_PREPARING" || st == "READY") {
+                                            StartCoroutine(minusMedications(medicationId, doseId, idStr));
+                                            issued = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!issued) {
+                                        Debug.LogWarning($"preMinus: No cancellable instances found for med={medicationId}, dose={doseId}. Expected PREPARING/AUTO_PREPARING/READY.");
                                     }
                                 }
                                 break;

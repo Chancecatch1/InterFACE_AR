@@ -31654,6 +31654,10 @@ PrefabInstance:
       propertyPath: m_Layer
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 4185972051820561612, guid: c6b351a67ceb69140b199996bbbea156, type: 3}
+      propertyPath: materialPropertiesFoldedOut
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 4185972052008607587, guid: c6b351a67ceb69140b199996bbbea156, type: 3}
       propertyPath: m_Layer
       value: 0
