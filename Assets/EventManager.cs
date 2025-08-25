@@ -2237,33 +2237,48 @@ public class EventManager : MonoBehaviour
         if (boolTogglePen == false) {
             StartCoroutine(togglePen1Sec());
             Debug.Log("Here");
-            FontIconSelector fis = GameObject.FindWithTag("PenToggle").transform.GetChild(2).transform.GetChild(0).transform.GetChild(0).transform.GetChild(1).GetComponent<FontIconSelector>();
-            GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
-            GameObject tst = GameObject.FindWithTag("TeamScreenText");
-            if (tsc != null) {
-                CanvasElementRoundedRect cer = tsc.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = tst.GetComponent<TextMeshProUGUI>();
-                cer.enabled = false;
-                tmpug.enabled = false;
+
+            // old code
+            // FontIconSelector fis = GameObject.FindWithTag("PenToggle").transform.GetChild(2).transform.GetChild(0).transform.GetChild(0).transform.GetChild(1).GetComponent<FontIconSelector>();
+            
+            GameObject pen = GameObject.FindWithTag("PenToggle");
+            if (pen == null) { 
+                Debug.LogWarning("PenToggle not found when togglePenMode ran"); 
+                return; 
+            }
+            FontIconSelector fis = pen.GetComponentInChildren<FontIconSelector>(true);
+            if (fis == null) { 
+                Debug.LogWarning("FontIconSelector not found under PenToggle"); 
+                return; 
             }
 
-            GameObject bcvs = GameObject.FindWithTag("BedCanvas");
-            GameObject bt = GameObject.FindWithTag("BedText");
-            if (bcvs != null) {
-                CanvasElementRoundedRect cer = bcvs.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = bt.GetComponent<TextMeshProUGUI>();
-                cer.enabled = false;                
-                tmpug.enabled = false;
-            }
+            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on togglePenMode (mj)
+            // GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
+            // GameObject tst = GameObject.FindWithTag("TeamScreenText");
+            // if (tsc != null) {
+            //     CanvasElementRoundedRect cer = tsc.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = tst.GetComponent<TextMeshProUGUI>();
+            //     cer.enabled = false;
+            //     tmpug.enabled = false;
+            // }
 
-            GameObject mcvs = GameObject.FindWithTag("MonitorCanvas");
-            GameObject mt = GameObject.FindWithTag("MonitorText");
-            if (mcvs != null) {
-                CanvasElementRoundedRect cer = mcvs.GetComponent<CanvasElementRoundedRect>();
-                TextMeshProUGUI tmpug = mt.GetComponent<TextMeshProUGUI>();
-                cer.enabled = false;                
-                tmpug.enabled = false;
-            }
+            // GameObject bcvs = GameObject.FindWithTag("BedCanvas");
+            // GameObject bt = GameObject.FindWithTag("BedText");
+            // if (bcvs != null) {
+            //     CanvasElementRoundedRect cer = bcvs.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = bt.GetComponent<TextMeshProUGUI>();
+            //     cer.enabled = false;                
+            //     tmpug.enabled = false;
+            // }
+
+            // GameObject mcvs = GameObject.FindWithTag("MonitorCanvas");
+            // GameObject mt = GameObject.FindWithTag("MonitorText");
+            // if (mcvs != null) {
+            //     CanvasElementRoundedRect cer = mcvs.GetComponent<CanvasElementRoundedRect>();
+            //     TextMeshProUGUI tmpug = mt.GetComponent<TextMeshProUGUI>();
+            //     cer.enabled = false;                
+            //     tmpug.enabled = false;
+            // }
 
             fis.CurrentIconName = "Icon 85";
 
@@ -2293,7 +2308,20 @@ public class EventManager : MonoBehaviour
         if (boolTogglePen == false) {
             StartCoroutine(togglePen1Sec());
             Debug.Log("There");
-            FontIconSelector fis = GameObject.FindWithTag("PenToggle").transform.GetChild(2).transform.GetChild(0).transform.GetChild(0).transform.GetChild(1).GetComponent<FontIconSelector>();
+            // old code
+            // FontIconSelector fis = GameObject.FindWithTag("PenToggle").transform.GetChild(2).transform.GetChild(0).transform.GetChild(0).transform.GetChild(1).GetComponent<FontIconSelector>();
+
+            GameObject pen = GameObject.FindWithTag("PenToggle");
+            if (pen == null) { 
+                Debug.LogWarning("PenToggle not found when untogglePenMode ran"); 
+                return; 
+            }
+            FontIconSelector fis = pen.GetComponentInChildren<FontIconSelector>(true);
+            if (fis == null) { 
+                Debug.LogWarning("FontIconSelector not found under PenToggle"); 
+                return; 
+            }
+            
             // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on untogglePenMode (mj)
             // GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
             // GameObject tst = GameObject.FindWithTag("TeamScreenText");
