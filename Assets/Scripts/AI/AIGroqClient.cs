@@ -4,6 +4,8 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
 using SimpleJSON;
+using System.IO;
+using TMPro;
 
 namespace HoloAI
 {
@@ -146,5 +148,52 @@ namespace HoloAI
                 }
             }
         }
+    }
+}
+// key provider (mj)
+public static class GroqKeyProvider
+{
+    private const string FileName = "keys.json";
+
+    public static string GetApiKey()
+    {
+        string path = Path.Combine(Application.persistentDataPath, FileName);
+        if (File.Exists(path))
+        {
+            try
+            {
+                string json = File.ReadAllText(path);
+                JSONNode node = JSON.Parse(json);
+                string key = node?["groqApiKey"]?.Value;
+                if (!string.IsNullOrEmpty(key)) return key;
+            }
+            catch { }
+        }
+
+        string pp = PlayerPrefs.GetString("GROQ_API_KEY", null);
+        if (!string.IsNullOrEmpty(pp)) return pp;
+
+        #if UNITY_EDITOR
+        string env = System.Environment.GetEnvironmentVariable("GROQ_API_KEY");
+        if (!string.IsNullOrEmpty(env)) return env;
+        #endif
+
+        return null;
+    }
+
+    public static bool SaveApiKey(string key)
+    {
+        if (string.IsNullOrWhiteSpace(key)) return false;
+        try
+        {
+            JSONObject obj = new JSONObject();
+            obj["groqApiKey"] = key.Trim();
+            string path = Path.Combine(Application.persistentDataPath, FileName);
+            File.WriteAllText(path, obj.ToString());
+            PlayerPrefs.SetString("GROQ_API_KEY", key.Trim());
+            PlayerPrefs.Save();
+            return true;
+        }
+        catch { return false; }
     }
 }

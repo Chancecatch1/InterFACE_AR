@@ -12,8 +12,8 @@ PlayerSettings:
   targetDevice: 2
   useOnDemandResources: 0
   accelerometerFrequency: 60
-  companyName: FR_InterFACE
-  productName: FR_InterFACE-AR
+  companyName: HXI_Lab
+  productName: InterFACE_AR
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.13725491, g: 0.12156863, b: 0.1254902, a: 1}
@@ -136,7 +136,7 @@ PlayerSettings:
   vulkanEnableLateAcquireNextImage: 0
   vulkanEnableCommandBufferRecycling: 1
   loadStoreDebugModeEnabled: 0
-  bundleVersion: 0.4
+  bundleVersion: 1
   preloadedAssets:
   - {fileID: 11400000, guid: c677e5c4eb85b7849a8da406775c299d, type: 2}
   - {fileID: -8306007691365666816, guid: bba58427bdfbb4f4cb8da1ebe35b54d7, type: 2}
@@ -161,7 +161,8 @@ PlayerSettings:
   resetResolutionOnWindowResize: 0
   androidSupportedAspectRatio: 1
   androidMaxAspectRatio: 2.1
-  applicationIdentifier: {}
+  applicationIdentifier:
+    Standalone: com.HXI-Lab.InterFACE-AR
   buildNumber:
     Standalone: 0
     VisionOS: 0
