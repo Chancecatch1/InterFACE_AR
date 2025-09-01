@@ -27,7 +27,6 @@ public class MedicationEvent : MonoBehaviour
     TextMeshProUGUI InsCount;
     TextMeshProUGUI GluCount;
 
-    int max_count = 9999;
     string processID;
 
     void Start()

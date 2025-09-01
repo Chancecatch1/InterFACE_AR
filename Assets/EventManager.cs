@@ -138,14 +138,11 @@ public class EventManager : MonoBehaviour
 
     double time1 = 0;
     double time2 = 0;
-    float effectTime = 1f;
 
     // Update is called once per frame
 
     public SocketIOUnity socket;
-    int idx = 1;
 
-    double startTimestamp = 0;
     double cprStartTimestamp = 0;
     double epiStartTimestamp = 0;
     double prev_cprStartTimestamp = 0;

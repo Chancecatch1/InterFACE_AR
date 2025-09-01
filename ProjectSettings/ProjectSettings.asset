@@ -137,11 +137,7 @@ PlayerSettings:
   vulkanEnableCommandBufferRecycling: 1
   loadStoreDebugModeEnabled: 0
   bundleVersion: 0.5
-  preloadedAssets:
-  - {fileID: 11400000, guid: c677e5c4eb85b7849a8da406775c299d, type: 2}
-  - {fileID: -8306007691365666816, guid: bba58427bdfbb4f4cb8da1ebe35b54d7, type: 2}
-  - {fileID: 11400000, guid: 30a796c4a5cc1fa41a0e03086bfd0357, type: 2}
-  - {fileID: -5609891336497477419, guid: 31f8c9562fb68d54ca24cd8418c2234c, type: 2}
+  preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0
   m_HolographicPauseOnTrackingLoss: 1
@@ -782,10 +778,10 @@ PlayerSettings:
   metroPackageName: CPRUIIntegration
   metroPackageVersion: 1.4.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
-  metroCertificatePassword: '|=>>=:=>='
-  metroCertificateSubject: InterFACE
-  metroCertificateIssuer: InterFACE
-  metroCertificateNotAfter: 00e695ea30addc01
+  metroCertificatePassword: =>?8
+  metroCertificateSubject: HXI_Lab
+  metroCertificateIssuer: HXI_Lab
+  metroCertificateNotAfter: 8003a8e16035dd01
   metroApplicationDescription: CPR_UI_Int
   wsaImages: {}
   metroTileShortName: CPR_UI_
