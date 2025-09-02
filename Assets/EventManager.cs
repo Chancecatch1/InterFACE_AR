@@ -10,9 +10,11 @@ using UnityEngine.Networking;
 using System;
 using System.Net;
 using System.Text;
+using System.Text.RegularExpressions; //mj
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Globalization;
 using SocketIOClient;
 using SocketIOClient.Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -32,8 +34,6 @@ public class EventManager : MonoBehaviour
     private float timeActivated = float.MinValue;
     // Add a deduplication set at class scope (mj)
     HashSet<string> _confirmedOnce = new HashSet<string>();
-    float _amioBlinkSuppressUntil = 0f;
-    float _epiBlinkSuppressUntil = 0f; //mj
 
     // public Transform head;
     // public Transform origin;
@@ -156,6 +156,19 @@ public class EventManager : MonoBehaviour
 
     bool boolTogglePen = false;
 
+    // CHANGE NOTE (2025-09-02, agent): Split Nurse UI source flags for Current vs Next.
+    // Why: Current panel should be state-based (medication()), Next should use server hints (advanced preparation).
+    // What changed: Introduced useServerHintsForNurseCurrent and useServerHintsForNurseNext.
+    // Behavior/Assumptions: Prevents overwrites and supports hybrid display.
+    // Rollback: Merge back to single flag or toggle both to same value.
+    bool useServerHintsForNurseCurrent = false; // state-based current panel
+    bool useServerHintsForNurseNext = true;    // server hints for next panel
+    // Max number of Next Steps items to display (default 3 to fill all slots)
+    int MAX_NEXT_STEPS = 3;
+    // De-duplication controls (defaults keep previous behavior)
+    bool dedupNextSteps = true;
+    bool dedupAgainstCurrent = true;
+
     ArrayList notiArr = new ArrayList();
     ArrayList notiCprArr = new ArrayList();
     ArrayList notiEpiArr = new ArrayList();
@@ -169,6 +182,29 @@ public class EventManager : MonoBehaviour
     //en, fr
     string lang = "en";
     SimpleJSON.JSONNode multi;
+    // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent (mj)
+    double bodyWeightKg = 0;
+
+    // Helper to robustly find TMP by tag, even if tag is on a parent (mj)
+    TextMeshProUGUI GetTMPByTag(string tagName)
+    {
+        var go = GameObject.FindWithTag(tagName);
+        if (go == null)
+        {
+            Debug.LogWarning($"[EventManager] GameObject with tag '{tagName}' not found or inactive.");
+            return null;
+        }
+        var tmp = go.GetComponent<TextMeshProUGUI>();
+        if (tmp != null) return tmp;
+        tmp = go.GetComponentInChildren<TextMeshProUGUI>(true);
+        if (tmp != null)
+        {
+            Debug.LogWarning($"[EventManager] Tag '{tagName}' is on '{go.name}', not on the TMP itself. Using child TMP '{tmp.gameObject.name}'. Consider moving the tag to that TMP object.");
+            return tmp;
+        }
+        Debug.LogWarning($"[EventManager] Tag '{tagName}' found on '{go.name}' but no TextMeshProUGUI on it or children.");
+        return null;
+    }
 
     // Start is called before the first frame update
     void Start()
@@ -193,53 +229,21 @@ public class EventManager : MonoBehaviour
            timer2 = GameObject.FindWithTag("EpiTimer").GetComponent<TextMeshProUGUI>();
         }
 
-        if (GameObject.FindWithTag("Doc_Cur_1") != null) {
-           Doc_Cur_1 = GameObject.FindWithTag("Doc_Cur_1").GetComponent<TextMeshProUGUI>();
-        }
+        Doc_Cur_1 = GetTMPByTag("Doc_Cur_1");
+        Doc_Cur_2 = GetTMPByTag("Doc_Cur_2");
+        Doc_Cur_3 = GetTMPByTag("Doc_Cur_3");
 
-        if (GameObject.FindWithTag("Doc_Cur_2") != null) {
-           Doc_Cur_2 = GameObject.FindWithTag("Doc_Cur_2").GetComponent<TextMeshProUGUI>();
-        }
+        Doc_Next_1 = GetTMPByTag("Doc_Next_1");
+        Doc_Next_2 = GetTMPByTag("Doc_Next_2");
+        Doc_Next_3 = GetTMPByTag("Doc_Next_3");
 
-        if (GameObject.FindWithTag("Doc_Cur_3") != null) {
-           Doc_Cur_3 = GameObject.FindWithTag("Doc_Cur_3").GetComponent<TextMeshProUGUI>();
-        }
+        Nurse_Cur_1 = GetTMPByTag("Nurse_Cur_1");
+        Nurse_Cur_2 = GetTMPByTag("Nurse_Cur_2");
+        Nurse_Cur_3 = GetTMPByTag("Nurse_Cur_3");
 
-        if (GameObject.FindWithTag("Doc_Next_1") != null) {
-           Doc_Next_1 = GameObject.FindWithTag("Doc_Next_1").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Doc_Next_2") != null) {
-           Doc_Next_2 = GameObject.FindWithTag("Doc_Next_2").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Doc_Next_3") != null) {
-           Doc_Next_3 = GameObject.FindWithTag("Doc_Next_3").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Cur_1") != null) {
-           Nurse_Cur_1 = GameObject.FindWithTag("Nurse_Cur_1").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Cur_2") != null) {
-           Nurse_Cur_2 = GameObject.FindWithTag("Nurse_Cur_2").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Cur_3") != null) {
-           Nurse_Cur_3 = GameObject.FindWithTag("Nurse_Cur_3").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Next_1") != null) {
-           Nurse_Next_1 = GameObject.FindWithTag("Nurse_Next_1").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Next_2") != null) {
-           Nurse_Next_2 = GameObject.FindWithTag("Nurse_Next_2").GetComponent<TextMeshProUGUI>();
-        }
-
-        if (GameObject.FindWithTag("Nurse_Next_3") != null) {
-           Nurse_Next_3 = GameObject.FindWithTag("Nurse_Next_3").GetComponent<TextMeshProUGUI>();
-        }
+        Nurse_Next_1 = GetTMPByTag("Nurse_Next_1");
+        Nurse_Next_2 = GetTMPByTag("Nurse_Next_2");
+        Nurse_Next_3 = GetTMPByTag("Nurse_Next_3");
 
         if (GameObject.FindWithTag("CardiacRhythm") != null) {
            CardiacRhythm = GameObject.FindWithTag("CardiacRhythm").GetComponent<TextMeshProUGUI>();
@@ -523,33 +527,324 @@ public class EventManager : MonoBehaviour
             Init_Tasks();
 
             // Add this inside UpdateInstructions(...) just after Init_Tasks();
-            string Render(SimpleJSON.JSONNode n)
+            // mj
+            // CHANGE NOTE (2025-09-01, agent): Normalize units for display and parsing.
+            // Why: Ensure downstream regex matching (e.g., mL/kg, mg/kg) and consistent UI.
+            // What changed: Map cc->mL and case-normalize MG/KG/ML variants.
+            // Behavior/Assumptions: Does not change semantic values; purely formatting.
+            // Rollback: Revert replacements below.
+            string NormalizeUnits(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return s;
+                // Volume (mj)
+                s = s.Replace("cc", "mL").Replace("CC", "mL");
+                s = s.Replace("ML", "mL").Replace("Ml", "mL").Replace("ml", "mL");
+                // Mass
+                s = s.Replace("MG", "mg").Replace("Mg", "mg");
+                // Weight
+                s = s.Replace("KG", "kg").Replace("Kg", "kg");
+                // Ensure consistent spacing like "J/kg" (keep as is by default)
+                return s;
+            }
+
+            // Extract only the final numeric result part from a calculation string (mj)
+            // e.g., "0.01 mg/kg (0.1 ml/kg) = 0.87 mg" -> "0.87 mg"
+            string ExtractFinalValue(string param)
+            {
+                if (string.IsNullOrWhiteSpace(param)) return "";
+                int idx = param.LastIndexOf('=');
+                string s = (idx >= 0 ? param.Substring(idx + 1) : param).Trim();
+                if (!string.IsNullOrWhiteSpace(s)) return NormalizeUnits(s); // mj
+
+                // Fallback: try to grab trailing numeric+unit even without '=' // mj
+                var m = Regex.Match(param, @"([0-9]+(?:\.[0-9]+)?\s*(mg|mcg|g|mL|ml|J|mEq|U|units))\s*$", RegexOptions.IgnoreCase);
+                if (m.Success)
+                {
+                    return NormalizeUnits(m.Groups[1].Value.Trim());
+                }
+                return "";
+            }
+
+            // Clean calc-like fragments from base text // mj
+            string CleanCalcFromText(string text, string param)
+            {
+                if (string.IsNullOrWhiteSpace(text)) return text ?? ""; // mj
+                string s = text;
+                if (!string.IsNullOrWhiteSpace(param))
+                {
+                    try { s = Regex.Replace(s, Regex.Escape(param), "", RegexOptions.IgnoreCase); } catch {} // mj
+                }
+                // Remove parentheses segments containing /kg
+                s = Regex.Replace(s, @"\([^)]*?/\s*kg[^)]*\)", "", RegexOptions.IgnoreCase);
+                // Remove ' = ...' segments
+                s = Regex.Replace(s, @"\s*=\s*[^\n:]+", "", RegexOptions.IgnoreCase);
+                // Remove absolute energy pieces like ' at 200J' or '(200J)'
+                s = Regex.Replace(s, @"\s+at\s*\d+(?:\.\d+)?\s*J", "", RegexOptions.IgnoreCase);
+                s = Regex.Replace(s, @"\s*\(\s*\d+(?:\.\d+)?\s*J\s*\)", "", RegexOptions.IgnoreCase);
+                // Remove generic unitized calc fragments (mg/mL/J, optionally /kg)
+                s = Regex.Replace(s, @"\b\d+(?:\.\d+)?\s*(mg|mcg|g|mL|ml|J)\s*(?:/\s*kg)?", "", RegexOptions.IgnoreCase);
+                // Cleanup spaces and trailing colon
+                while (s.Contains("  ")) s = s.Replace("  ", " ");
+                if (s.EndsWith(":")) s = s.Substring(0, s.Length - 1);
+                return s.Trim();
+            }
+
+            // Extract per-kg energy like '2 J/kg' from a string // mj
+            string ExtractPerKgJ(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return "";
+                var m = Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*J\s*/\s*kg", RegexOptions.IgnoreCase);
+                if (m.Success)
+                {
+                    string num = m.Groups[1].Value;
+                    return $"{num} J/kg";
+                }
+                return "";
+            }
+
+            // Optional: wrap long lines after the colon for readability // mj
+            string WrapIfLong(string composed)
+            {
+                if (string.IsNullOrWhiteSpace(composed)) return composed;
+                if (composed.Length <= 28) return composed;
+
+                int colon = composed.IndexOf(':');
+                if (colon > 0 && colon < composed.Length - 1)
+                {
+                    string left = composed.Substring(0, colon).TrimEnd();
+                    string right = composed.Substring(colon + 1).TrimStart();
+                    if (right.Length > 18 && right.Contains(" (")) right = right.Replace(" (", "\n(");
+                    return left + ":\n" + right;
+                }
+                int par = composed.IndexOf(" (");
+                if (par > 0)
+                {
+                    return composed.Substring(0, par) + "\n" + composed.Substring(par + 1).TrimStart(' ');
+                }
+                return composed;
+            }
+
+            string TryComputePerKgFinal(string s, double weightKg)
+            {
+                if (string.IsNullOrWhiteSpace(s) || weightKg <= 0) return "";
+                s = NormalizeUnits(s);
+                // Prefer mass-based doses if present (mg/mcg/g per kg)
+                var mMass = Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g)\s*/\s*kg", RegexOptions.IgnoreCase);
+                if (mMass.Success)
+                {
+                    double v = 0;
+                    double.TryParse(mMass.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out v);
+                    double total = v * weightKg;
+                    string unit = mMass.Groups[2].Value.ToLowerInvariant();
+                    if (unit == "g")
+                    {
+                        return total.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " g";
+                    }
+                    if (unit == "mcg")
+                    {
+                        return total.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " mcg";
+                    }
+                    return total.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " mg";
+                }
+                // Then volume per kg (mL or cc)
+                var mVol = Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mL|ml|cc)\s*/\s*kg", RegexOptions.IgnoreCase);
+                if (mVol.Success)
+                {
+                    double v = 0;
+                    double.TryParse(mVol.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out v);
+                    double total = v * weightKg;
+                    return total.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " mL";
+                }
+                return "";
+            }
+
+            // CHANGE NOTE (2025-09-02, agent): Extract a single per-kg token (prefer mass, else volume) without computing.
+            string ExtractPerKgMass(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return "";
+                s = NormalizeUnits(s);
+                var m = Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g)\s*/\s*kg", RegexOptions.IgnoreCase);
+                if (!m.Success) return "";
+                string val = m.Groups[1].Value;
+                string unit = m.Groups[2].Value.ToLowerInvariant();
+                if (unit == "g" || unit == "mg" || unit == "mcg")
+                {
+                    return val + " " + unit + "/kg";
+                }
+                return "";
+            }
+            string ExtractPerKgVol(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return "";
+                s = NormalizeUnits(s);
+                var m = Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mL|ml|cc)\s*/\s*kg", RegexOptions.IgnoreCase);
+                if (!m.Success) return "";
+                string val = m.Groups[1].Value;
+                return val + " mL/kg";
+            }
+
+            // CHANGE NOTE (2025-09-02, agent): Tidy spacing util for formatting.
+            string TidySpacing(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return s;
+                s = Regex.Replace(s, @"(?<!\s)\(", " (" );
+                s = Regex.Replace(s, @"\(\s+", "(");
+                s = Regex.Replace(s, @"\s+\)", ")");
+                s = Regex.Replace(s, @":\s*", ": ");
+                s = Regex.Replace(s, @"[ \t]{2,}", " ");
+                return s.Trim();
+            }
+
+            // CHANGE NOTE (2025-09-02, agent): Nurse Advanced Preparation specific post-formatting.
+            // Why: Keep general wording unchanged; only standardize units/spacing.
+            string FormatAdvancedPreparationNurse(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return s;
+                var text = NormalizeUnits(s);
+                text = TidySpacing(text);
+                return text;
+            }
+
+            // CHANGE NOTE (2025-09-01, agent): Compose display text with optional computed final.
+            // Why: If patient weight is unknown or no parameter is provided, we must NOT strip mg/kg from the base text.
+            // What changed: Perform cleaning ONLY when a final numeric value exists; otherwise keep original template text.
+            // Behavior/Assumptions: For shock energy, we keep only per-kg in final and remove absolute J in base.
+            // Rollback: Restore earlier flow that cleaned base text before deciding on final.
+            string ComposeTextFinal(SimpleJSON.JSONNode n)
             {
                 if (n == null) return "";
 
-                // Old backend sometimes sent plain strings: keep that working.
+                // CHANGE NOTE (2025-09-02, agent): Process plain string tags through the same dose-selection logic.
+                // Why: Some Nurse Next hints arrive as a raw tag (string). Previously we returned the raw template, so dose rules were skipped.
+                string tag = null;
+                string baseRaw = "";
+                string param = null;
+
                 if (n.IsString)
-                    return InstructionFinder.FindByTag(n.Value, lang);
-
-                // New backend shape: { "hintType": "...", "hintParameter": "..." }
-                string tag = n["hintType"]?.Value;
-                string text = string.IsNullOrWhiteSpace(tag) ? "" : InstructionFinder.FindByTag(tag, lang);
-
-                string param = n["hintParameter"]?.Value;
-                if (!string.IsNullOrWhiteSpace(param))
                 {
-                    if (string.IsNullOrWhiteSpace(text)) return param;
-                    if (text.Contains("{param}")) return text.Replace("{param}", param);
-                    if (text.Contains("{value}")) return text.Replace("{value}", param);
-                    return $"{text}: {param}";
+                    tag = n.Value;
+                    baseRaw = InstructionFinder.FindByTag(tag, lang);
                 }
+                else
+                {
+                    tag = n["hintType"]?.Value;
+                    baseRaw = string.IsNullOrWhiteSpace(tag) ? "" : InstructionFinder.FindByTag(tag, lang);
+                    param = n["hintParameter"]?.Value;
+                }
+
+                string text = NormalizeUnits(baseRaw);
+                if (!string.IsNullOrWhiteSpace(param)) param = NormalizeUnits(param);
+
+                // Detect shock energy using unmodified raw template/param
+                // Only trigger for actual energy instructions (defibrillation/shock) or when J/kg is present.
+                // Note: Do NOT rely on word boundaries for 'defibrill*' since words like 'defibrillation' and 'defibrillate' would fail \b at the substring.
+                bool isJPerKg =
+                    Regex.IsMatch(baseRaw ?? "", @"J\s*/\s*kg", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(param ?? "", @"J\s*/\s*kg", RegexOptions.IgnoreCase);
+                bool isShockWord =
+                    Regex.IsMatch(baseRaw ?? "", @"defibrill", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(baseRaw ?? "", @"shock", RegexOptions.IgnoreCase);
+                bool looksLikeShockEnergy = isJPerKg || isShockWord;
+                if (looksLikeShockEnergy)
+                {
+                    Debug.Log($"[EventManager] ComposeTextFinal detect: tag={tag}, isJPerKg={isJPerKg}, isShockWord={isShockWord}, base='{baseRaw}', param='{param}'");
+                }
+
+                string final = "";
+                if (looksLikeShockEnergy)
+                {
+                    // Prefer returning ONLY the per-kg energy (e.g., "2 J/kg" or "4 J/kg").
+                    string perKg = ExtractPerKgJ(param);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgJ(text);
+
+                    if (!string.IsNullOrWhiteSpace(perKg))
+                    {
+                        // Apply uniform panel rule: show general instruction text and the selected per-kg energy
+                        text = CleanCalcFromText(text, param);
+                        string combined = string.IsNullOrWhiteSpace(text) ? perKg : ($"{text}: {perKg}");
+                        Debug.Log($"[EventManager] ComposeTextFinal shock: tag={tag} => '{combined}'");
+                        return combined;
+                    }
+
+                    // Fallback: no per-kg present -> strip absolute J and calc fragments from the base text and return it
+                    text = Regex.Replace(text, @"\s+at\s*\d+(?:\.\d+)?\s*J", "", RegexOptions.IgnoreCase).Trim();
+                    text = CleanCalcFromText(text, param);
+                    return text;
+                }
+                else
+                {
+                    // 1) Prefer explicit parameter's final
+                    final = ExtractFinalValue(param);
+                    // 2) Otherwise compute from per-kg in tag/param, only if weight is known
+                    if (string.IsNullOrWhiteSpace(final) && bodyWeightKg > 0)
+                    {
+                        string source = !string.IsNullOrWhiteSpace(param) ? param : baseRaw;
+                        final = TryComputePerKgFinal(source, bodyWeightKg);
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(final))
+                    {
+                        // Clean and show only final dose alongside general wording
+                        text = CleanCalcFromText(text, param);
+                    }
+                    else
+                    {
+                        // No final available: choose ONE of the per-kg tokens (prefer mass over volume)
+                        string src = !string.IsNullOrWhiteSpace(param) ? param : baseRaw;
+                        string perKg = ExtractPerKgMass(src);
+                        if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(src);
+                        if (!string.IsNullOrWhiteSpace(perKg))
+                        {
+                            text = CleanCalcFromText(text, param);
+                            final = perKg; // reuse final slot for unified output path
+                        }
+                    }
+                }
+
+                // Hide parameter-only hints (avoid standalone calc lines)
+                if (string.IsNullOrWhiteSpace(text)) return "";
+
+                if (!string.IsNullOrWhiteSpace(final))
+                    return $"{text}: {final}";
 
                 return text ?? "";
             }
+
+            // Canonicalize content for dedup (keep digits, remove bullets, collapse whitespace, lower-case) (mj)
+            string Canonicalize(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return "";
+                s = NormalizeUnits(s); // mj
+                s = s.Replace("•", "").Trim().ToLowerInvariant();
+                var parts = s.Split(new char[]{' ','\t','\r','\n'}, System.StringSplitOptions.RemoveEmptyEntries);
+                return string.Join(" ", parts);
+            }
+
+            // Build dedup key using tag + canonicalized composed text, so only fully identical entries dedup
+            string DedupKeyFromNode(SimpleJSON.JSONNode n)
+            {
+                if (n == null) return "";
+                // Use the same composed display string for dedup so Doctor/Nurse panels dedup consistently
+                string tag0 = "";
+                if (n.IsString)
+                {
+                    tag0 = n.Value ?? "";
+                }
+                else
+                {
+                    tag0 = n["hintType"]?.Value ?? "";
+                }
+                string display = ComposeTextFinal(n);
+                return tag0 + "|" + Canonicalize(display);
+            }
+
+
             
             if (obj["cprNurseHintsModel"] == null) {
                 
-            } else {
+            } else if (useServerHintsForNurseCurrent) {
+                // CHANGE NOTE (2025-09-02, agent): Guarded by useServerHintsForNurseCurrent.
+                // Why: Avoid overwriting Medication Orders populated by medication() while PREPARING/READY.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["primaryHints"];
                 Debug.Log(instrunctions);
 
@@ -561,7 +856,9 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
                     */
-                    string instruction = Render(instrunctions[i]);
+                    // Compose: General text + final value (if any) (mj)
+                    string instruction = ComposeTextFinal(instrunctions[i]);
+                    instruction = WrapIfLong(instruction); // mj
                     
                     if (i == 0) {
                         if (Nurse_Cur_1 != null) {
@@ -590,40 +887,59 @@ public class EventManager : MonoBehaviour
 
             if (obj["cprNurseHintsModel"] == null) {
                 
-            } else {
+            } else if (useServerHintsForNurseNext) {
+                // CHANGE NOTE (2025-09-02, agent): Guarded by useServerHintsForNurseNext to prevent duplication with medication() UI.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["nextStepHints"];
 
-                for(int i = 0; i < instrunctions.Count; i++)
-                {   
-                    /* Old code below
-                    string instruction = instrunctions[i];
-                    if (!String.IsNullOrWhiteSpace(instruction)) {
-                        instruction = InstructionFinder.FindByTag(instruction, lang);                    
+                // Next Steps: General text + final value, de-dup with current (by tag+text), cap to MAX_NEXT_STEPS (mj)
+                var curSet = new System.Collections.Generic.HashSet<string>();
+                var curNodesN = obj["cprNurseHintsModel"]["primaryHints"];
+                if (curNodesN != null)
+                {
+                    for (int ci = 0; ci < curNodesN.Count; ci++)
+                    {
+                        string ck = DedupKeyFromNode(curNodesN[ci]);
+                        if (!string.IsNullOrWhiteSpace(ck)) curSet.Add(ck);
                     }
-                    */
-                    string instruction = Render(instrunctions[i]);
+                }
 
-                    if (i == 0) {
-                        if (Nurse_Next_1 != null) {
-                            Nurse_Next_1.text = instruction.Replace("1)", "•");
-                            if (String.IsNullOrWhiteSpace(Nurse_Next_1.text.Replace("•", ""))) {
-                                Nurse_Next_1.text = "";
-                            }
-                        }
-                    } else if (i == 1) {
-                        if (Nurse_Next_2 != null) {
-                            Nurse_Next_2.text = instruction.Replace("2)", "•");
-                            if (String.IsNullOrWhiteSpace(Nurse_Next_2.text.Replace("•", ""))) {
-                                Nurse_Next_2.text = "";
-                            }
-                        }
-                    } else if (i == 2) {
-                        if (Nurse_Next_3 != null) {
-                            Nurse_Next_3.text = instruction.Replace("3)", "•");
-                            if (String.IsNullOrWhiteSpace(Nurse_Next_3.text.Replace("•", ""))) {
-                                Nurse_Next_3.text = "";
-                            }
-                        }
+                var seen = new System.Collections.Generic.HashSet<string>();
+                int filled = 0;
+
+                // initialize
+                if (Nurse_Next_1 != null) Nurse_Next_1.text = "";
+                if (Nurse_Next_2 != null) Nurse_Next_2.text = "";
+                if (Nurse_Next_3 != null) Nurse_Next_3.text = "";
+
+                for (int i = 0; i < instrunctions.Count; i++)
+                {
+                    if (filled >= MAX_NEXT_STEPS) break; // mj
+                    string val = ComposeTextFinal(instrunctions[i]); // (mj)
+                    val = FormatAdvancedPreparationNurse(val);
+                    val = WrapIfLong(val);
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+
+                    string key = DedupKeyFromNode(instrunctions[i]);
+                    if (dedupAgainstCurrent && curSet.Contains(key)) continue; // mj
+                    if (dedupNextSteps && !seen.Add(key)) continue;
+
+                    if (filled == 0 && Nurse_Next_1 != null)
+                    {
+                        Nurse_Next_1.text = val;
+                        filled++;
+                        continue;
+                    }
+                    if (filled == 1 && Nurse_Next_2 != null)
+                    {
+                        Nurse_Next_2.text = val;
+                        filled++;
+                        continue;
+                    }
+                    if (filled == 2 && Nurse_Next_3 != null) // mj
+                    {
+                        Nurse_Next_3.text = val;
+                        filled++;
+                        continue;
                     }
                 }
             }
@@ -641,11 +957,16 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);                    
                     }
                     */
-                    string instruction = Render(instrunctions[i]);
+                    // Compose: General text + final value (if any) (mj)
+                    // Doctor: DO NOT split medication name and dose to two lines (nurse-only).
+                    // If the line is too long, we only wrap after ':' or before '(' for readability.
+                    string instruction = ComposeTextFinal(instrunctions[i]);
+                    instruction = WrapIfLong(instruction);
 
                     if (i == 0) {
                         if (Doc_Cur_1 != null) {
                             Doc_Cur_1.text = instruction.Replace("1)", "•");
+                            Debug.Log($"[EventManager] Doc_Cur_1 <= '{Doc_Cur_1.text}'");
                             if (String.IsNullOrWhiteSpace(Doc_Cur_1.text.Replace("•", ""))) {
                                 Doc_Cur_1.text = "";
                             }
@@ -653,6 +974,7 @@ public class EventManager : MonoBehaviour
                     } else if (i == 1) {
                         if (Doc_Cur_2 != null) {
                             Doc_Cur_2.text = instruction.Replace("2)", "•");
+                            Debug.Log($"[EventManager] Doc_Cur_2 <= '{Doc_Cur_2.text}'");
                             if (String.IsNullOrWhiteSpace(Doc_Cur_2.text.Replace("•", ""))) {
                                 Doc_Cur_2.text = "";
                             }
@@ -660,6 +982,7 @@ public class EventManager : MonoBehaviour
                     } else if (i == 2) {
                         if (Doc_Cur_3 != null) {
                             Doc_Cur_3.text = instruction.Replace("3)", "•");
+                            Debug.Log($"[EventManager] Doc_Cur_3 <= '{Doc_Cur_3.text}'");
                             if (String.IsNullOrWhiteSpace(Doc_Cur_3.text.Replace("•", ""))) {
                                 Doc_Cur_3.text = "";
                             }
@@ -673,41 +996,56 @@ public class EventManager : MonoBehaviour
             } else {
                 SimpleJSON.JSONNode instrunctions = obj["cprLeaderHintsModel"]["nextStepHints"];
 
-                for(int i = 0; i < instrunctions.Count; i++)
-                {   
-                    /*Old code below
-                    string instruction = instrunctions[i];
-                    
-                    if (!String.IsNullOrWhiteSpace(instruction)) {
-                        instruction = InstructionFinder.FindByTag(instruction, lang);                    
-                    }
-                    */
-                    string instruction = Render(instrunctions[i]);
-                    
-                    if (i == 0) {
-                        if (Doc_Next_1 != null) {
-                            Doc_Next_1.text = instruction.Replace("1)", "•");
-                            if (String.IsNullOrWhiteSpace(Doc_Next_1.text.Replace("•", ""))) {
-                                Doc_Next_1.text = "";
-                            }
-                        }
-                    } else if (i == 1) {
-                        if (Doc_Next_2 != null) {
-                            Doc_Next_2.text = instruction.Replace("2)", "•");
-                            if (String.IsNullOrWhiteSpace(Doc_Next_2.text.Replace("•", ""))) {
-                                Doc_Next_2.text = "";
-                            }
-                        }
-                    } else if (i == 2) {
-                        if (Doc_Next_3 != null) {
-                            Doc_Next_3.text = instruction.Replace("3)", "•");
-                            if (String.IsNullOrWhiteSpace(Doc_Next_3.text.Replace("•", ""))) {
-                                Doc_Next_3.text = "";
-                            }
-                        }
+                // Doctor Next Steps: General text + final value, de-dup (by tag+text), cap to MAX_NEXT_STEPS (mj)
+                var curDocSet = new System.Collections.Generic.HashSet<string>();
+                var curNodesD = obj["cprLeaderHintsModel"]["primaryHints"];
+                if (curNodesD != null)
+                {
+                    for (int ci = 0; ci < curNodesD.Count; ci++)
+                    {
+                        string ck = DedupKeyFromNode(curNodesD[ci]);
+                        if (!string.IsNullOrWhiteSpace(ck)) curDocSet.Add(ck);
                     }
                 }
-        }
+
+                var seenDoc = new System.Collections.Generic.HashSet<string>();
+                int filledDoc = 0;
+
+                // initialize
+                if (Doc_Next_1 != null) Doc_Next_1.text = "";
+                if (Doc_Next_2 != null) Doc_Next_2.text = "";
+                if (Doc_Next_3 != null) Doc_Next_3.text = "";
+
+                for(int i = 0; i < instrunctions.Count; i++)
+                {   
+                    if (filledDoc >= MAX_NEXT_STEPS) break; // (mj)
+
+                    // Doctor: Only wrap long lines; do not move dose to a new line (nurse-only behavior).
+                    string val = ComposeTextFinal(instrunctions[i]);
+                    val = WrapIfLong(val);
+                    if (string.IsNullOrWhiteSpace(val)) continue;
+
+                    string key = DedupKeyFromNode(instrunctions[i]); // mj
+                    if (dedupAgainstCurrent && curDocSet.Contains(key)) continue; 
+                    if (dedupNextSteps && !seenDoc.Add(key)) continue;
+
+                    if (filledDoc == 0 && Doc_Next_1 != null) {
+                        Doc_Next_1.text = val;
+                        filledDoc++;
+                        continue;
+                    }
+                    if (filledDoc == 1 && Doc_Next_2 != null) { //mj
+                        Doc_Next_2.text = val;
+                        filledDoc++;
+                        continue;
+                    }
+                    if (filledDoc == 2 && Doc_Next_3 != null) { //mj
+                        Doc_Next_3.text = val;
+                        filledDoc++;
+                        continue;
+                    }
+                }
+            }
         } catch (Exception e) {
             Debug.Log(e);
         } finally {
@@ -1198,16 +1536,21 @@ public class EventManager : MonoBehaviour
         }
 
         if (patientModel != null) {
-            string weight = patientModel["weight"];
-            if (weight != null){
+            string weightStr = patientModel["weight"];
+            if (weightStr != null){
+                // CHANGE NOTE (2025-09-01, agent): Persist body weight for dose computations later in the same session.
+                double w;
+                if (double.TryParse(weightStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out w)) {
+                    bodyWeightKg = w;
+                }
                 m_queueAction.Enqueue(() => {
                     GameObject bw = GameObject.Find("BodyWeight");
                     if (bw != null) {
                         TextMeshProUGUI txt = bw.GetComponent<TextMeshProUGUI>();
                         if (lang == "fr")
-                            txt.text = $" Poids corporel : {weight} kg";
+                            txt.text = $" Poids corporel : {weightStr} kg";
                         else
-                            txt.text = $" Body weight: {weight} kg";
+                            txt.text = $" Body weight: {weightStr} kg";
                     }
                 });
             }
@@ -1274,11 +1617,9 @@ public class EventManager : MonoBehaviour
 
                                     bool callUpdateNoti = meds.Count > 1; // avoid duplicate noti with the single-med branch
                                     m_queueAction.Enqueue(() => {
-                                        if (isAmio) _amioBlinkSuppressUntil = Time.time + 1.0f; // suppress blink
-                                        if (isAmio) BlinkAmiodaroneOrder(false);
-                                        if (isEpi) _epiBlinkSuppressUntil = Time.time + 1.0f; // suppress blink (mj)
-                                        if (isEpi) BlinkEpinephrineOrder(false);
-                                        ConfirmFlashOrderDisplay(medName); // green flash
+                                        if (isAmio) HighlightAmiodaroneOrder(false);
+                                        if (isEpi) HighlightEpinephrineOrder(false);
+                                        ConfirmFlashOrderDisplay(medName);
                                         if (callUpdateNoti) UpdateNoti(medName, doseLabel, 0);
                                     });
                                 }
@@ -1490,8 +1831,11 @@ public class EventManager : MonoBehaviour
 
                 // storedMedJson = tempMedJson;
 
-                int iii = 0;
-                int jjj = 0;
+                // CHANGE NOTE (2025-09-02, agent): Hybrid Nurse UI sources.
+                // If server hints drive current, block medication() from writing current by starting iii=3; else allow with iii=0.
+                // If server hints drive next, block medication() from writing next by starting jjj=3; else allow with jjj=0.
+                int iii = useServerHintsForNurseCurrent ? 3 : 0;
+                int jjj = useServerHintsForNurseNext ? 3 : 0;
                 int resCount = 0;
                 int intCount = 0;
                 int hypCount = 0;
@@ -1537,13 +1881,6 @@ public class EventManager : MonoBehaviour
                             if (AmiCount != null) {
                                 AmiCount.text = val.ToString();
                             }
-                            // INSERT: Amiodarone highlight (mj)
-                            // HighlightAmiodaroneOrder(val > 0); // if Amiodarone is READY
-
-                            // dose label (example: 5 mg/kg = 330 mg)
-                            // string doseLabel = _doses["label"];
-
-                            // if Amiodarone is PREPARING, show in Orders with highlight
 
                             if (preVal > 0 || val > 0) {
                                 resCount++;
@@ -1551,12 +1888,11 @@ public class EventManager : MonoBehaviour
                                 else if (Nurse_Cur_2 != null && iii == 1) { Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 else if (Nurse_Cur_3 != null && iii == 2) { Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 }
-                                // Blink only if any instance is READY; otherwise ensure normal (white/normal) (mj)
+                                
                                 {
                                     SimpleJSON.JSONNode medNode1 = storedMedJson[i];
                                     bool amioReady = MedHasStatus(medNode1, "READY");
-                                    bool amioPreparing = MedHasAnyPreparing(medNode1);
-                                    BlinkAmiodaroneOrder(amioReady && Time.time >= _amioBlinkSuppressUntil);
+                                    HighlightAmiodaroneOrder(amioReady);
                                     if (!amioReady) {
                                         // PREPARING or none -> revert to normal
                                         SetOrderNormalFor(FindMultiLang("Amiodarone"));
@@ -1605,12 +1941,10 @@ public class EventManager : MonoBehaviour
                                     iii++;
                                 }
                             }
-                            // Blink only if any instance is READY; otherwise ensure normal (white/normal)
                             {
                                 SimpleJSON.JSONNode medNode5 = storedMedJson[i];
                                 bool epiReady = MedHasStatus(medNode5, "READY");
-                                bool epiPreparing = MedHasAnyPreparing(medNode5);
-                                BlinkEpinephrineOrder(epiReady && Time.time >= _epiBlinkSuppressUntil);
+                                HighlightEpinephrineOrder(epiReady);
                                 if (!epiReady) {
                                     SetOrderNormalFor(FindMultiLang("Epinephrine"));
                                 }
@@ -2449,15 +2783,7 @@ public class EventManager : MonoBehaviour
     // CONFIRM: name-based green color on Medication Orders (mj)
     void ConfirmFlashOrderDisplay(string medDisplayName, float seconds = 1.6f)
     {
-        void Apply(TMPro.TextMeshProUGUI t)
-        {
-            if (t == null || string.IsNullOrEmpty(t.text)) return;
-            if (t.text.IndexOf(medDisplayName, System.StringComparison.OrdinalIgnoreCase) < 0) return;
-            t.fontStyle = TMPro.FontStyles.Normal;
-            t.color = new Color(0.30f, 0.95f, 0.30f, 1f);
-        }
-        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
-        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
+        // no-op: green confirm display disabled per requirement
     }
 
     IEnumerator FlashGreen(TMPro.TextMeshProUGUI t, float seconds)
@@ -2526,12 +2852,10 @@ public class EventManager : MonoBehaviour
     void HighlightAmiodaroneOrder(bool on)
     {
         string key = FindMultiLang("Amiodarone");
+        // Highlight only in Medication Order (current), not in Next Steps
         ApplyOrderHighlight(Nurse_Cur_1, key, on);
         ApplyOrderHighlight(Nurse_Cur_2, key, on);
         ApplyOrderHighlight(Nurse_Cur_3, key, on);
-        ApplyOrderHighlight(Nurse_Next_1, key, on);
-        ApplyOrderHighlight(Nurse_Next_2, key, on);
-        ApplyOrderHighlight(Nurse_Next_3, key, on);
     }
 
     // INSERT: Amiodarone blink (mj)
@@ -2597,5 +2921,14 @@ public class EventManager : MonoBehaviour
         }
         Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
         Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
+    }
+
+    void HighlightEpinephrineOrder(bool on)
+    {
+        string key = FindMultiLang("Epinephrine");
+        // Highlight only in Medication Order (current), not in Next Steps
+        ApplyOrderHighlight(Nurse_Cur_1, key, on);
+        ApplyOrderHighlight(Nurse_Cur_2, key, on);
+        ApplyOrderHighlight(Nurse_Cur_3, key, on);
     }
 }

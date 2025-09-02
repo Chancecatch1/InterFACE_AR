@@ -1,0 +1,139 @@
+Rule Name: interfacear
+Description: InterFACE AR (Unity 2022.3 + MRTK3) project rules for Cursor
+
+## Project Overview
+- Goal: Provide CPR training/simulation in a mixed reality (MR) environment (InterFACE AR)
+- Engine/Version: Unity 2022.3.15f1 (`ProjectSettings/ProjectVersion.txt`)
+- Main Frameworks: MRTK3, OpenXR, TextMesh Pro
+- Core Code Location: `Assets/**/*.cs`, resource JSON under `Assets/Resources/**`
+
+## Packages/Dependencies
+- MRTK3: `org.mixedrealitytoolkit.*` (UX, Core, Input, etc.) — local tgz packages live under `Packages/MixedReality`
+- OpenXR: `com.unity.xr.openxr`, `com.microsoft.mixedreality.openxr`
+- Networking: REST (`UnityWebRequest`) + SSE (custom `EventSourceReader`), Socket.IO client present but not active in the main flow
+- JSON Parser: `Assets/SimpleJSON.cs`
+- Versions are authoritative in `Packages/manifest.json`
+
+## Entry Scenes and Build (from WARP)
+- Entry scenes (EditorBuildSettings):
+  - `Assets/Scenes/main_scene.unity` (menu)
+  - Doctor: `hmd_doctor_1..9`
+  - Nurse: `hmd_nurse_1..5`
+
+- Windows PowerShell helpers:
+
+```powershell
+$UNITY_EXE = "C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.15f1\\Editor\\Unity.exe"
+
+# Open the project (imports UPM + local MRTK tgz packages)
+& $UNITY_EXE -projectPath "$PWD" -logFile "-"
+
+# Build Standalone Windows x64 player
+& $UNITY_EXE -quit -batchmode -nographics -projectPath "$PWD" -buildWindows64Player "$PWD\Builds\Windows\FR_InterFACE-AR.exe" -logFile "-"
+
+# Run EditMode tests (if present)
+& $UNITY_EXE -quit -batchmode -nographics -projectPath "$PWD" -runTests -testPlatform editmode -testResults "$PWD\TestResults\editmode.xml" -logFile "-"
+
+# Run PlayMode tests (if present)
+& $UNITY_EXE -quit -batchmode -nographics -projectPath "$PWD" -runTests -testPlatform playmode -testResults "$PWD\TestResults\playmode.xml" -logFile "-"
+
+# Run a single test (filter by name)
+& $UNITY_EXE -quit -batchmode -nographics -projectPath "$PWD" -runTests -testPlatform editmode -testResults "$PWD\TestResults\single.xml" -testFilter "Namespace.ClassName.TestMethod" -logFile "-"
+```
+
+Note: No external C# linter configured by default; add analyzers/dotnet-format if needed. Unity generates solution/projects on open.
+
+## Networking Endpoints (hard-coded)
+- Sessions list: `https://interface-ar.unige.ch/care-processes`
+- Process detail + timers/algorithm: `https://interface-ar.unige.ch/care-processes/{processId}`
+- Live SSE: `https://interface-ar.unige.ch/care-processes/{processId}/live`
+- Medications list: `https://interface-ar.unige.ch/care-processes/{processId}/cpr/medications`
+- Medication instance PATCH/DELETE are composed in `NewMedicationEventManager`.
+
+Where to modify URLs:
+- `Assets/EventManager.cs` (getSessions, algoInit, timerInit, startConnection)
+- `Assets/NewMedicationEventManager.cs` (preAdd/preMinus paths)
+
+## Unity/MRTK Work Guidelines
+- Main Thread Rule: Do not call Unity API from background/network callbacks. For UI updates, use `UnityMainThread.wkr.AddJob(Action)` (`Assets/UnityMainThread.cs`).
+- Resources Usage: Load JSON via `Resources.Load<TextAsset>(...)`. If file names or paths change, update all references accordingly.
+- Prefab/Scene Integrity: Do not arbitrarily rename or move `.prefab`, `.unity`, or `.meta` files.
+- Performance: Minimize blocking/allocation in `Update()`. Use coroutines or async for waiting/IO.
+- Input/UX: Follow MRTK UX component/layer settings. Maintain OpenXR settings from `ProjectSettings`.
+
+## Data/Resource Rules
+- Language/Text: `InstructionFinder` parses `Resources/en.json` and `fr.json`. Keep keys synchronized across both files when changed.
+- Medication Data: `MedicationFinder` uses `medications*.json` and `medicationslabels*.json`. Maintain consistency in ID/label/dose schema.
+- Large Assets: Out of scope for code search; avoid unnecessary churn in large assets.
+
+## High-level Architecture and Data Flow
+1) Session discovery and selection (menu/main_scene)
+- `EventManager.Start()` calls `getSessions()` to fetch active care processes from `GET /care-processes`.
+- Each session is rendered via a session prefab (MRTK PressableButton). Clicking a session triggers:
+  - `startConnection(processId, shortCode)`
+  - `algoInit(processId)`
+  - `medicationInitialize(processId)`
+  - `timerInit(processId)`
+
+2) Live updates via SSE (Server-Sent Events)
+- `startConnection` builds SSE URL `.../care-processes/{processId}/live`.
+- `EvtSource.EventSourceReader` connects and raises `MessageReceived` events.
+- Each event payload is parsed (SimpleJSON) and passed to `EventManager.currentStatus(...)`.
+
+3) UI composition and update strategy
+- Heavy reliance on Unity Tags to find UI elements at runtime (see `ProjectSettings/TagManager.asset`). Examples: `CPRTimer`, `EpiTimer`, `Doc_Cur_1..3`, `Nurse_Cur_1..3`, `CPRTimerPlate`, `EpiTimerPlate`, `SessionContainer`, and tab icons.
+- Task/instruction panels are populated from `response["cprLeaderHintsModel"]` and `response["cprNurseHintsModel"]`. `UpdateInstructions()` renders legacy string hints or `{ hintType, hintParameter }` via `InstructionFinder`.
+- Algorithm highlighting maps protocol `stepId → CanvasElementRoundedRect`. `EventManager.algo(...)` updates materials and label colors based on status (OPEN/IN_PROGRESS/COMPLETED). Includes ASYSTOLIE vs ASYSTOLIE2 handling.
+- Timers: `response["cprProtocolModel"]["cprTimersModel"]` provides timestamps for `adrenalineTimer` and `cprTimer`. `EventManager.UpdateClock()` computes countdown/overrun, updates TextMeshPro timers, and switches plate materials (including flashing). Notification prefabs for CPR/Epi are spawned at thresholds.
+
+4) Medications subsystem
+- Initialization: `medicationInitialize(processId)` GETs `.../cpr/medications`.
+- Event-driven updates also pass through `currentStatus(...)["cprMedicationModel"]`.
+- Display logic tallies per-medication and per-dose counters (`preparingCounter`, `readyCounter`) to drive counts, current/next orders, and tab icon visibility.
+- `NewMedicationEventManager` provides button handlers:
+  - Promote `PREPARING/AUTO_PREPARING` to `READY` via `PATCH /instances/{id}?status=READY`
+  - Cancel `PREPARING` by `DELETE /instances/{id}`
+  - It pre-fetches the current medication list to locate the right dose instance before issuing `PATCH/DELETE`.
+
+5) Internationalization (I18n)
+- `InstructionFinder` loads `Resources/en.json` and `fr.json` to translate instruction tags. `EventManager.lang` toggles runtime replacement: if `lang != "en"`, it traverses active `TextMeshProUGUI` components and replaces text where a translation exists.
+- Note: In `InstructionFinder.FindByTag`, the FR branch currently parses `EN_JSONString`; adjust to `FR_JSONString` for French to take effect for instruction tags.
+
+6) Input and MR affordances
+- MRTK components toggle between "pen" mode and normal mode. `togglePenMode/untogglePenMode` enable/disable `BoundsControl`/`ObjectManipulator` and certain colliders/interactables. `FontIconSelector` reflects current mode via icon name.
+
+7) Logging
+- CSV logging to `Application.persistentDataPath` with the current date as filename. `StartGazeHover/EndGazeHover` write entries including object name, duration, Unix time, local `DateTime`, and current session code.
+
+## Unity/MRTK Coding Rules
+- Naming: Use full words expressing intent; avoid 1–2 letter abbreviations.
+- Formatting: Keep indenting/style consistent with existing files; do not reformat unrelated code.
+- Flow Control: Prefer guard clauses and early returns; avoid meaningless try/catch blocks.
+- Comments: Explain why, not how; avoid obvious comments.
+- Typing: Use explicit types for public APIs; avoid unsafe casting.
+
+## Search/Context Guide
+- Start in `Assets/**/*.cs`. Related resources in `Assets/Resources/**/*.json`.
+- Cross-check runtime/build issues with `ProjectSettings/*`, OpenXR, and MRTK configurations.
+
+## Build/Test Guidelines
+- Keep editor free of warnings/errors. Preserve `.meta` integrity.
+- After changes, perform smoke tests on HoloLens and PC play modes covering: network connection, resource loading, UI updates.
+
+## Key Source Files
+- `Assets/EventManager.cs` — central orchestrator for sessions, SSE, timers, algorithm highlighting, notifications, i18n, CSV logging.
+- `Assets/NewMedicationEventManager.cs` — button handlers to adjust medication instances via REST.
+- `Assets/medication_json.cs` (MedicationFinder) — maps medication IDs and tracks current `processId`.
+- `Assets/language_json.cs` (InstructionFinder) — maps instruction tags to localized strings.
+- `Assets/EventSourceReader.cs` — minimal SSE client used with Unity.
+- `Assets/SseDownloadHandlerBase.cs` — line-oriented DownloadHandler for SSE-like streams.
+- `ProjectSettings/EditorBuildSettings.asset` — configured scenes for builds.
+
+## Operational Notes
+- Tags are part of the runtime wiring. If you refactor UI or rename tags/layers, update `TagManager.asset` or code paths that search by tags to avoid null references.
+- The project depends on local Mixed Reality tgz packages under `Packages/MixedReality`; keep them in source control.
+- `SocketIOUnity` exists and `SocketEventManager` is present, but the main flow uses SSE; Socket.IO connection is not used by `EventManager` (connect is commented out).
+
+## Known Quirks / TODOs
+- `InstructionFinder.FindByTag`: FR branch parses `EN_JSONString`; should parse `FR_JSONString` to enable proper French instruction tag translation.
+
