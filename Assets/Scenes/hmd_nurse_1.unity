@@ -13822,7 +13822,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e73bd2f890560b34a983df973688cb9c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  groqApiKey: 
+  groqApiKey: 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
   chatModel: llama3-8b-8192
   sttModel: whisper-large-v3
   statusLabel: {fileID: 0}

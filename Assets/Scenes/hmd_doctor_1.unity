@@ -7499,7 +7499,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e73bd2f890560b34a983df973688cb9c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  groqApiKey: 
+  groqApiKey: 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
   chatModel: llama3-8b-8192
   sttModel: whisper-large-v3
   statusLabel: {fileID: 0}
@@ -19506,7 +19506,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 75, y: 0}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &2144585709
