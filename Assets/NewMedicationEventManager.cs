@@ -152,35 +152,61 @@ public class MedicationEvent : MonoBehaviour
                     if ((string) med["id"] == medicationId) {
                         foreach(SimpleJSON.JSONNode doses in med["doses"]) {
                             if ((string) doses["id"] == doseId) {
-                                // OLD (mj prev): cancel only when PREPARING or READY and autoPrescribed == false
-                                // foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
-                                //     // Allow cancel when instance is PREPARING or already set to READY (after plus / mj)
-                                //     string st = di["status"];
-                                //     bool auto = false;
-                                //     try { auto = di["autoPrescribed"]; } catch {}
-                                //     if ((st == "PREPARING" || st == "READY") && auto == false) {
-                                //         StartCoroutine(minusMedications(medicationId, doseId, di["id"]));
-                                //         break;
-                                //     }
-                                // }
-
-                                // NEW: also allow AUTO_PREPARING and drop autoPrescribed filter; add debug logs
+                                // CHANGE CHANGE (KO/EN)
+                                // NOTE (2025-09-04, mj)
+                                // 왜(Why): AUTO_PREPARING 인스턴스를 삭제하려고 시도하면 서버가 400을 반환합니다. 실제로 줄여야 하는 것은 READY 인스턴스이므로,
+                                //          우선순위를 READY → (사용자 생성) PREPARING 으로 하고 AUTO_PREPARING은 건드리지 않습니다.
+                                // 무엇이 바뀜(What Changed): preMinus 선택 로직을 재작성하여
+                                //  1) READY 인스턴스를 먼저 선택해서 삭제,
+                                //  2) 없으면 autoPrescribed==false 인 PREPARING 인스턴스를 선택,
+                                //  3) AUTO_PREPARING 은 삭제 대상으로 고려하지 않도록 했습니다.
+                                // 동작/가정(Behaviour/Assumptions): 서버는 READY 인스턴스 삭제를 허용하고, AUTO_PREPARING 삭제는 허용하지 않는다는 전제입니다.
+                                // 위험평가(Risk Assessment):
+                                // - Level: Low
+                                // - Impact: 잘못된 대상(AUTO_PREPARING) 삭제 시도로 인한 400 오류를 방지합니다.
+                                // - Rollback: 이전 로직으로 되돌리면 됩니다(단 400 재발 가능).
+                                //
+                                // CHANGE CHANGE (EN)
+                                // NOTE (2025-09-04, mj)
+                                // Why: Deleting AUTO_PREPARING instances causes HTTP 400 from the server. The correct target to reduce READY count is a READY instance.
+                                // What Changed: Reordered preMinus selection:
+                                //  1) Prefer deleting a READY instance,
+                                //  2) Else delete a PREPARING instance only if autoPrescribed==false,
+                                //  3) Never try deleting AUTO_PREPARING.
+                                // Behaviour/Assumptions: Server allows deleting READY, but not AUTO_PREPARING.
+                                // Risk Assessment:
+                                // - Level: Low
+                                // - Impact: Prevents 400 errors from attempting to delete AUTO_PREPARING.
+                                // - Rollback: Restore previous selection logic (with risk of 400s).
                                 {
-                                    bool issued = false;
+                                    // First pass: pick a READY instance (prefer most recent if ordering guarantees exist; here we take the first encountered)
+                                    string chosenId = null;
                                     foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
                                         string st = di["status"];
                                         string idStr = di["id"];
                                         bool auto = false;
                                         try { auto = di["autoPrescribed"]; } catch {}
-                                        Debug.Log($"preMinus di status={st}, autoPrescribed={auto}, id={idStr}");
-                                        if (st == "PREPARING" || st == "AUTO_PREPARING" || st == "READY") {
-                                            StartCoroutine(minusMedications(medicationId, doseId, idStr));
-                                            issued = true;
-                                            break;
+                                        Debug.Log($"preMinus scan1 status={st}, autoPrescribed={auto}, id={idStr}");
+                                        if (st == "READY") { chosenId = idStr; break; }
+                                    }
+
+                                    // Second pass: fallback to PREPARING only when not auto-prescribed
+                                    if (chosenId == null) {
+                                        foreach (SimpleJSON.JSONNode di in doses["doseInstances"]) {
+                                            string st = di["status"];
+                                            string idStr = di["id"];
+                                            bool auto = false;
+                                            try { auto = di["autoPrescribed"]; } catch {}
+                                            Debug.Log($"preMinus scan2 status={st}, autoPrescribed={auto}, id={idStr}");
+                                            if (st == "PREPARING" && auto == false) { chosenId = idStr; break; }
                                         }
                                     }
-                                    if (!issued) {
-                                        Debug.LogWarning($"preMinus: No cancellable instances found for med={medicationId}, dose={doseId}. Expected PREPARING/AUTO_PREPARING/READY.");
+
+                                    if (chosenId != null) {
+                                        Debug.Log($"preMinus choose id={chosenId} (READY preferred; else PREPARING non-auto)");
+                                        StartCoroutine(minusMedications(medicationId, doseId, chosenId));
+                                    } else {
+                                        Debug.LogWarning($"preMinus: No cancellable instances found for med={medicationId}, dose={doseId}. Skipping AUTO_PREPARING by design.");
                                     }
                                 }
                                 break;

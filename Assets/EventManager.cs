@@ -414,7 +414,7 @@ public class EventManager : MonoBehaviour
         }
 
         if (multi != null) {
-            GameObject[] allGameObjects = FindObjectsOfType<GameObject>(true);  // true: 비활성화된 오브젝트까지 포함
+            GameObject[] allGameObjects = FindObjectsOfType<GameObject>(true);  // true: inactive objects
             foreach (var go in allGameObjects)
             {
                 TextMeshProUGUI textObj = go.GetComponent<TextMeshProUGUI>();
@@ -424,7 +424,7 @@ public class EventManager : MonoBehaviour
 
                     if (!string.IsNullOrEmpty(originalText))
                     {
-                        // 번역된 텍스트가 있으면 교체, 없으면 로깅
+                        // if there is a translated text, replace it, else log
                         if (multi[originalText] != null)
                         {
                             textObj.text = multi[originalText];
@@ -445,7 +445,7 @@ public class EventManager : MonoBehaviour
 
         if (!string.IsNullOrEmpty(originalText))
         {
-            // 번역된 텍스트가 있으면 교체, 없으면 로깅
+            // if there is a translated text, replace it, else log
             if (multi[originalText] != null)
             {
                 return multi[originalText];
@@ -527,12 +527,7 @@ public class EventManager : MonoBehaviour
             Init_Tasks();
 
             // Add this inside UpdateInstructions(...) just after Init_Tasks();
-            // mj
-            // CHANGE NOTE (2025-09-01, agent): Normalize units for display and parsing.
-            // Why: Ensure downstream regex matching (e.g., mL/kg, mg/kg) and consistent UI.
-            // What changed: Map cc->mL and case-normalize MG/KG/ML variants.
-            // Behavior/Assumptions: Does not change semantic values; purely formatting.
-            // Rollback: Revert replacements below.
+            // CHANGE NOTE (2025-09-01, mj): Normalize units for display and parsing.
             string NormalizeUnits(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return s;
@@ -565,14 +560,14 @@ public class EventManager : MonoBehaviour
                 return "";
             }
 
-            // Clean calc-like fragments from base text // mj
+            // Clean calc-like fragments from base text
             string CleanCalcFromText(string text, string param)
             {
-                if (string.IsNullOrWhiteSpace(text)) return text ?? ""; // mj
+                if (string.IsNullOrWhiteSpace(text)) return text ?? "";
                 string s = text;
                 if (!string.IsNullOrWhiteSpace(param))
                 {
-                    try { s = Regex.Replace(s, Regex.Escape(param), "", RegexOptions.IgnoreCase); } catch {} // mj
+                    try { s = Regex.Replace(s, Regex.Escape(param), "", RegexOptions.IgnoreCase); } catch {}
                 }
                 // Remove parentheses segments containing /kg
                 s = Regex.Replace(s, @"\([^)]*?/\s*kg[^)]*\)", "", RegexOptions.IgnoreCase);
@@ -589,7 +584,7 @@ public class EventManager : MonoBehaviour
                 return s.Trim();
             }
 
-            // Extract per-kg energy like '2 J/kg' from a string // mj
+            // Extract per-kg energy like '2 J/kg' from a string
             string ExtractPerKgJ(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return "";
@@ -602,7 +597,7 @@ public class EventManager : MonoBehaviour
                 return "";
             }
 
-            // Optional: wrap long lines after the colon for readability // mj
+            // Optional: wrap long lines after the colon for readability
             string WrapIfLong(string composed)
             {
                 if (string.IsNullOrWhiteSpace(composed)) return composed;
@@ -658,7 +653,7 @@ public class EventManager : MonoBehaviour
                 return "";
             }
 
-            // CHANGE NOTE (2025-09-02, agent): Extract a single per-kg token (prefer mass, else volume) without computing.
+            // CHANGE NOTE (2025-09-02, mj): Extract a single per-kg token (prefer mass, else volume) without computing.
             string ExtractPerKgMass(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return "";
@@ -683,7 +678,7 @@ public class EventManager : MonoBehaviour
                 return val + " mL/kg";
             }
 
-            // CHANGE NOTE (2025-09-02, agent): Tidy spacing util for formatting.
+            // CHANGE NOTE (2025-09-02, mj): Tidy spacing util for formatting.
             string TidySpacing(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return s;
@@ -695,7 +690,7 @@ public class EventManager : MonoBehaviour
                 return s.Trim();
             }
 
-            // CHANGE NOTE (2025-09-02, agent): Nurse Advanced Preparation specific post-formatting.
+            // CHANGE NOTE (2025-09-02, mj): Nurse Advanced Preparation specific post-formatting.
             // Why: Keep general wording unchanged; only standardize units/spacing.
             string FormatAdvancedPreparationNurse(string s)
             {
@@ -705,7 +700,7 @@ public class EventManager : MonoBehaviour
                 return text;
             }
 
-            // CHANGE NOTE (2025-09-01, agent): Compose display text with optional computed final.
+            // CHANGE NOTE (2025-09-01, mj): Compose display text with optional computed final.
             // Why: If patient weight is unknown or no parameter is provided, we must NOT strip mg/kg from the base text.
             // What changed: Perform cleaning ONLY when a final numeric value exists; otherwise keep original template text.
             // Behavior/Assumptions: For shock energy, we keep only per-kg in final and remove absolute J in base.
@@ -714,7 +709,7 @@ public class EventManager : MonoBehaviour
             {
                 if (n == null) return "";
 
-                // CHANGE NOTE (2025-09-02, agent): Process plain string tags through the same dose-selection logic.
+                // CHANGE NOTE (2025-09-02, mj): Process plain string tags through the same dose-selection logic.
                 // Why: Some Nurse Next hints arrive as a raw tag (string). Previously we returned the raw template, so dose rules were skipped.
                 string tag = null;
                 string baseRaw = "";
@@ -810,11 +805,11 @@ public class EventManager : MonoBehaviour
                 return text ?? "";
             }
 
-            // Canonicalize content for dedup (keep digits, remove bullets, collapse whitespace, lower-case) (mj)
+            // Canonicalize content for dedup (keep digits, remove bullets, collapse whitespace, lower-case)
             string Canonicalize(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return "";
-                s = NormalizeUnits(s); // mj
+                s = NormalizeUnits(s);
                 s = s.Replace("•", "").Trim().ToLowerInvariant();
                 var parts = s.Split(new char[]{' ','\t','\r','\n'}, System.StringSplitOptions.RemoveEmptyEntries);
                 return string.Join(" ", parts);
@@ -1889,12 +1884,37 @@ public class EventManager : MonoBehaviour
                                 else if (Nurse_Cur_3 != null && iii == 2) { Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 }
                                 
+                                // CHANGE CHANGE (KO/EN)
+                                // NOTE (2025-09-04, mj)
+                                // 왜(Why): 사용자 요구사항에 따라 약물 카드의 행은 "주문됨(ORDERED = PREPARING/AUTO_PREPARING)"일 때 노란색으로 하이라이트되고,
+                                //         "준비됨(READY)"이 되면 하이라이트를 제거해야 합니다. DONE 유무는 하이라이트 판단에 영향을 주지 않습니다.
+                                // 무엇이 바뀜(What Changed): 하이라이트 조건을 isOrdered && !hasReady 로 단순화했습니다.
+                                // 동작/가정(Behaviour/Assumptions): PREPARING/AUTO_PREPARING이 하나라도 있고, READY 인스턴스가 없으면 노란색.
+                                // 위험평가(Risk Assessment):
+                                // - Level: Low
+                                // - Impact: READY가 생성되는 즉시 노란색이 꺼져 사용자의 의도(주문 상태만 강조)와 일치합니다.
+                                // - Rollback: 필요 시 DONE도 고려하거나, READY 존재 시에도 강조하도록 조건을 되돌릴 수 있습니다.
+                                //
+                                // CHANGE CHANGE (EN)
+                                // NOTE (2025-09-04, mj)
+                                // Why: Per requirement, highlight the medication row when ORDERED (PREPARING/AUTO_PREPARING) and remove it when READY.
+                                //      DONE presence should not affect the highlight decision.
+                                // What Changed: Simplified the condition to isOrdered && !hasReady.
+                                // Behaviour/Assumptions: Yellow if there is any PREPARING/AUTO_PREPARING and no READY instances.
+                                // Risk Assessment:
+                                // - Level: Low
+                                // - Impact: Yellow turns off as soon as READY appears, aligning with user intent.
+                                // - Rollback: Reintroduce DONE checks or relax READY constraints if needed.
                                 {
                                     SimpleJSON.JSONNode medNode1 = storedMedJson[i];
-                                    bool amioReady = MedHasStatus(medNode1, "READY");
-                                    HighlightAmiodaroneOrder(amioReady);
-                                    if (!amioReady) {
-                                        // PREPARING or none -> revert to normal
+                                    bool hasReady = MedHasStatus(medNode1, "READY");
+                                    bool isOrdered = MedHasAnyPreparing(medNode1); // PREPARING or AUTO_PREPARING
+
+                                    bool highlight = isOrdered && !hasReady;
+
+                                    HighlightAmiodaroneOrder(highlight);
+                                    if (!highlight) {
+                                        // not ordered or already ready -> revert to normal
                                         SetOrderNormalFor(FindMultiLang("Amiodarone"));
                                     }
                                 }
@@ -1928,7 +1948,7 @@ public class EventManager : MonoBehaviour
                             if (EpiCount != null) {
                                 EpiCount.text = val.ToString();
                             }
-                            if (preVal > 0 || val > 0) { // (mj)
+                            if (preVal > 0 || val > 0) {
                                 resCount++;
                                 if (Nurse_Cur_1 != null && iii == 0) {
                                     Nurse_Cur_1.text = FindMultiLang("Epinephrine") + " 0.25 mg";
@@ -1941,11 +1961,33 @@ public class EventManager : MonoBehaviour
                                     iii++;
                                 }
                             }
+                            // CHANGE CHANGE (KO/EN)
+                            // NOTE (2025-09-04, mj)
+                            // 왜(Why): 약물 카드는 "주문됨(ORDERED)"일 때 노란색, "준비됨(READY)"이면 해제되어야 합니다. DONE은 무관합니다.
+                            // 무엇이 바뀜(What Changed): 하이라이트 조건을 isOrdered && !hasReady 로 변경.
+                            // 동작/가정(Behaviour/Assumptions): PREPARING/AUTO_PREPARING 존재 && READY 없음 → 노란색.
+                            // 위험평가(Risk Assessment):
+                            // - Level: Low
+                            // - Impact: READY가 생성되면 즉시 노란색 해제.
+                            // - Rollback: 필요 시 DONE 고려나 조건 완화 가능.
+                            //
+                            // CHANGE CHANGE (EN)
+                            // NOTE (2025-09-04, mj)
+                            // Why: Medication row should be yellow when ORDERED and removed when READY. DONE should not affect.
+                            // What Changed: Use isOrdered && !hasReady.
+                            // Behaviour/Assumptions: Yellow if PREPARING/AUTO_PREPARING exists and no READY.
+                            // Risk Assessment:
+                            // - Level: Low
+                            // - Impact: Turns off as soon as READY appears.
                             {
                                 SimpleJSON.JSONNode medNode5 = storedMedJson[i];
-                                bool epiReady = MedHasStatus(medNode5, "READY");
-                                HighlightEpinephrineOrder(epiReady);
-                                if (!epiReady) {
+                                bool hasReady = MedHasStatus(medNode5, "READY");
+                                bool isOrdered = MedHasAnyPreparing(medNode5);
+
+                                bool highlight = isOrdered && !hasReady;
+
+                                HighlightEpinephrineOrder(highlight);
+                                if (!highlight) {
                                     SetOrderNormalFor(FindMultiLang("Epinephrine"));
                                 }
                             }
@@ -2780,10 +2822,30 @@ public class EventManager : MonoBehaviour
         Debug.Log("Logged: " + logEntry);
     }
 
-    // CONFIRM: name-based green color on Medication Orders (mj)
+    // CHANGE CHANGE (KO/EN)
+    // NOTE (2025-09-04, mj)
+    // 왜(Why): 약물 투여 확정(DONE) 시 초록색(그린) 하이라이트/플래시를 사용하면 READY/ORDERED와 시인성 충돌이 있고,
+    //          사용자 요구사항에 따라 노란색 PREPARING 하이라이트만 남기고 나머지 시각 효과(초록색/깜박임)는 제거합니다.
+    // 무엇이 바뀜(What Changed): Confirm(확정) 시 적용되던 초록색 플래시 로직을 전면 비활성화(no-op)했습니다.
+    // 동작/가정(Behaviour/Assumptions): DONE 이벤트가 와도 UI 텍스트 색상/스타일을 변경하지 않습니다.
+    // 위험평가(Risk Assessment):
+    // - Level: Low
+    // - Impact: 약물 목록에서 DONE 알림의 시각적 강조가 사라집니다(요구사항).
+    // - Rollback: 본 함수를 과거 구현(FlashGreen 코루틴 호출)으로 되돌리면 됩니다.
+    //
+    // CHANGE CHANGE (EN)
+    // NOTE (2025-09-04, mj)
+    // Why: A green confirm flash conflicts with the visibility model for READY/ORDERED and per requirement we keep only the yellow PREPARING highlight,
+    //      removing green and blinking effects.
+    // What Changed: This method is now a no-op; the previous green flash on confirmation is disabled.
+    // Behaviour/Assumptions: DONE events no longer change text color/style.
+    // Risk Assessment:
+    // - Level: Low
+    // - Impact: Visual confirmation highlight is removed from the medication list (as requested).
+    // - Rollback: Reintroduce the prior FlashGreen coroutine call here.
     void ConfirmFlashOrderDisplay(string medDisplayName, float seconds = 1.6f)
     {
-        // no-op: green confirm display disabled per requirement
+        // intentionally left blank (no-op)
     }
 
     IEnumerator FlashGreen(TMPro.TextMeshProUGUI t, float seconds)
@@ -2800,14 +2862,83 @@ public class EventManager : MonoBehaviour
         t.fontStyle = origStyle;
     }
 
-    // INSERT: Amiodarone highlight (mj)
+    // CHANGE CHANGE (KO/EN)
+    // NOTE (2025-09-04, mj)
+    // 왜(Why): 약물 리스트에서 PREPARING(= ordered) 상태만 노란색으로 강조하고, 다른 상태의 초록색/깜박임 효과는 제거합니다.
+    // 무엇이 바뀜(What Changed): 아래 하이라이트 색상은 노란색만 유지하며, 다른 색상/블링크 로직은 별도로 제거되었습니다.
+    // 동작/가정(Behaviour/Assumptions): 키워드를 포함한 텍스트에만 굵게+노란색을 적용합니다(on=true). off면 흰색/보통 글꼴로 복구.
+    // 위험평가(Risk Assessment):
+    // - Level: Low
+    // - Impact: READY/DONE 등에서 색상 강조가 더 이상 나타나지 않음(요구사항 반영).
+    // - Rollback: 필요 시 색상/스타일을 재도입하면 됩니다.
+    //
+    // CHANGE CHANGE (EN)
+    // NOTE (2025-09-04, mj)
+    // Why: Keep only a yellow highlight for PREPARING(= ordered) items and remove any green/blink effects.
+    // What Changed: This helper applies only yellow emphasis; other color/blink behaviors were removed elsewhere.
+    // Behaviour/Assumptions: Applies bold+yellow when the key matches; otherwise resets to normal/white.
+    // Risk Assessment:
+    // - Level: Low
+    // - Impact: No more highlights for READY/DONE (per requirement).
+    // - Rollback: Reintroduce alternative colors or effects as needed.
+    // CHANGE CHANGE (KO/EN)
+    // NOTE (2025-09-04, mj)
+    // 왜(Why): 노란색 하이라이트가 잘 눈에 띄지 않는 문제를 개선하기 위해, 더 진한 앰버톤 색상과
+    //          TextMesh Pro 아웃라인(검정)을 함께 적용해 가독성을 높였습니다.
+    // 무엇이 바뀜(What Changed): 하이라이트 on 시 굵게(Bold) + 진한 노란색(#FFDA1A 근사) + OutlineWidth(~0.2) 적용,
+    //          off 시 기존 색/스타일(흰색/보통)로 복구하고 OutlineWidth=0으로 되돌립니다.
+    // 동작/가정(Behaviour/Assumptions): TextMesh Pro SDF 머티리얼을 사용하며, fontMaterial 접근 시 인스턴스가 생성되어
+    //          개별 텍스트에만 Outline 설정이 적용됩니다(공유 머티리얼 변경 방지).
+    // 위험평가(Risk Assessment):
+    // - Level: Low
+    // - Impact: 텍스트 대비가 높아져 하이라이트 인지성이 향상됩니다.
+    // - Rollback: 색상/Outline 폭을 원래 값으로 되돌리면 됩니다.
+    //
+    // CHANGE CHANGE (EN)
+    // NOTE (2025-09-04, mj)
+    // Why: The yellow highlight was not sufficiently visible. We now apply a richer amber color and a black outline
+    //      to improve readability.
+    // What Changed: On highlight ON: Bold + strong yellow (~#FFDA1A) + OutlineWidth(~0.2). On highlight OFF: restore
+    //      white/normal and set OutlineWidth back to 0.
+    // Behaviour/Assumptions: Uses TextMesh Pro SDF material; accessing fontMaterial creates a per-instance material
+    //      to avoid changing shared assets.
+    // Risk Assessment:
+    // - Level: Low
+    // - Impact: Better contrast and visibility of highlighted rows.
+    // - Rollback: Revert color/outline width to previous values.
     void ApplyOrderHighlight(TMPro.TextMeshProUGUI t, string key, bool on)
     {
         if (t == null || string.IsNullOrEmpty(t.text)) return;
         if (t.text.IndexOf(key, System.StringComparison.OrdinalIgnoreCase) >= 0)
         {
-            t.fontStyle = on ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
-            t.color = on ? new Color(1f, 0.95f, 0.6f, 1f) : Color.white;
+            try
+            {
+                // Stronger amber highlight color
+                var highlightColor = new Color(1f, 0.85f, 0.1f, 1f); // ~#FFDA1A
+
+                t.fontStyle = on ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
+                t.color = on ? highlightColor : Color.white;
+
+                // Per-instance TMP material for outline
+                var mat = t.fontMaterial; // creates an instance if needed
+                if (on)
+                {
+                    // Outline width ~0.2 (tune as needed); outline color nearly black
+                    mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, 0.2f);
+                    mat.SetColor(TMPro.ShaderUtilities.ID_OutlineColor, new Color(0f, 0f, 0f, 0.9f));
+                }
+                else
+                {
+                    mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, 0f);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[EventManager] ApplyOrderHighlight outline failed: {e}");
+                // Fallback to color/style only
+                t.fontStyle = on ? TMPro.FontStyles.Bold : TMPro.FontStyles.Normal;
+                t.color = on ? new Color(1f, 0.85f, 0.1f, 1f) : Color.white;
+            }
         }
     }
 
@@ -2820,6 +2951,12 @@ public class EventManager : MonoBehaviour
             {
                 t.fontStyle = TMPro.FontStyles.Normal;
                 t.color = Color.white;
+                try
+                {
+                    var mat = t.fontMaterial; // per-instance
+                    mat.SetFloat(TMPro.ShaderUtilities.ID_OutlineWidth, 0f);
+                }
+                catch {}
             }
         }
         Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
@@ -2858,70 +2995,25 @@ public class EventManager : MonoBehaviour
         ApplyOrderHighlight(Nurse_Cur_3, key, on);
     }
 
-    // INSERT: Amiodarone blink (mj)
-    Dictionary<TMPro.TextMeshProUGUI, Coroutine> _blink = new();
-
-    IEnumerator BlinkText(TMPro.TextMeshProUGUI t, Color a, Color b, float period)
-    {
-        while (true)
-        {
-            t.color = a; yield return new WaitForSeconds(period * 0.5f);
-            t.color = b; yield return new WaitForSeconds(period * 0.5f);
-        }
-    }
-
-    void SetBlink(TMPro.TextMeshProUGUI t, bool on, Color a, Color b, float period = 0.6f)
-    {
-        if (t == null) return;
-        if (on)
-        {
-            if (!_blink.ContainsKey(t))
-                _blink[t] = StartCoroutine(BlinkText(t, a, b, period));
-        }
-        else
-        {
-            if (_blink.TryGetValue(t, out var c))
-            {
-                StopCoroutine(c);
-                _blink.Remove(t);
-                t.color = Color.white;
-            }
-        }
-    }
-
-    void BlinkAmiodaroneOrder(bool on)
-    {
-        string key = FindMultiLang("Amiodarone");
-        void Apply(TMPro.TextMeshProUGUI x)
-        {
-            if (x == null || string.IsNullOrEmpty(x.text)) return;
-            bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
-            if (match) // mj
-            {
-                // Use a more distinct yellow and a strong orange for clearer differentiation
-                SetBlink(x, on, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
-            }
-        }
-        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
-        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
-    }
-
-    void BlinkEpinephrineOrder(bool on) // (mj)
-    {
-        string key = FindMultiLang("Epinephrine");
-        void Apply(TMPro.TextMeshProUGUI x)
-        {
-            if (x == null || string.IsNullOrEmpty(x.text)) return;
-            bool match = x.text.IndexOf(key, StringComparison.OrdinalIgnoreCase) >= 0;
-            if (match) // mj
-            {
-                // Reuse the same blink colors and period as Amiodarone
-                SetBlink(x, on, new Color(1f, 0.85f, 0.1f, 1f), new Color(1f, 0.4f, 0f, 1f), 0.5f);
-            }
-        }
-        Apply(Nurse_Cur_1); Apply(Nurse_Cur_2); Apply(Nurse_Cur_3);
-        Apply(Nurse_Next_1); Apply(Nurse_Next_2); Apply(Nurse_Next_3);
-    }
+    // CHANGE CHANGE (KO/EN)
+    // NOTE (2025-09-04, mj)
+    // 왜(Why): 요구사항에 따라 약물 리스트의 깜박임(blink) 효과를 전부 제거합니다. 노란색 PREPARING 하이라이트만 유지합니다.
+    // 무엇이 바뀜(What Changed): BlinkText/SetBlink 및 약물별 Blink 함수(Amiodarone/Epinephrine)를 코드에서 제거했습니다.
+    // 동작/가정(Behaviour/Assumptions): 어떤 상태에서도 텍스트 깜박임을 사용하지 않습니다.
+    // 위험평가(Risk Assessment):
+    // - Level: Low
+    // - Impact: 시각적 깜박임이 사라져 눈 피로/주의 분산이 줄어듭니다.
+    // - Rollback: 필요 시 해당 함수들을 복구하여 호출부에 재연결하면 됩니다.
+    //
+    // CHANGE CHANGE (EN)
+    // NOTE (2025-09-04, mj)
+    // Why: Per requirement, remove all blinking effects from the medication list UI, keeping only the yellow PREPARING highlight.
+    // What Changed: Removed BlinkText/SetBlink and per-medication Blink helpers (Amiodarone/Epinephrine).
+    // Behaviour/Assumptions: No blinking text for any state.
+    // Risk Assessment:
+    // - Level: Low
+    // - Impact: Less visual distraction; align with requested visual language.
+    // - Rollback: Reintroduce the removed methods and their call sites if needed.
 
     void HighlightEpinephrineOrder(bool on)
     {
