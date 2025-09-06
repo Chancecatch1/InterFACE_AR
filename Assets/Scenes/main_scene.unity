@@ -1003,10 +1003,22 @@ PrefabInstance:
       propertyPath: m_Name
       value: MRTK XR Rig
       objectReference: {fileID: 0}
+    - target: {fileID: 4102833070697430761, guid: 4d7e2f87fefe0ba468719b15288b46e7, type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 7115113329451106245, guid: 4d7e2f87fefe0ba468719b15288b46e7, type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 7720573869748407015, guid: 4d7e2f87fefe0ba468719b15288b46e7, type: 3}
       propertyPath: m_InteractionManager
       value: 
       objectReference: {fileID: 420261025}
+    - target: {fileID: 8988800969130450167, guid: 4d7e2f87fefe0ba468719b15288b46e7, type: 3}
+      propertyPath: m_Enabled
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

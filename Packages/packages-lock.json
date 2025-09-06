@@ -9,12 +9,6 @@
       },
       "hash": "00e176cdc31b1cd06bdc556ac919f9bcd166d7ee"
     },
-    "com.microsoft.mixedreality.movingplatform": {
-      "version": "file:MixedReality/com.microsoft.mixedreality.movingplatform-0.0.3.tgz",
-      "depth": 0,
-      "source": "local-tarball",
-      "dependencies": {}
-    },
     "com.microsoft.mixedreality.openxr": {
       "version": "file:MixedReality/com.microsoft.mixedreality.openxr-1.11.2.tgz",
       "depth": 0,
@@ -25,12 +19,6 @@
         "com.unity.xr.openxr": "1.7.0",
         "com.unity.xr.core-utils": "2.1.0"
       }
-    },
-    "com.microsoft.mixedreality.powerthermalnotification": {
-      "version": "file:MixedReality/com.microsoft.mixedreality.powerthermalnotification-0.2.1.tgz",
-      "depth": 0,
-      "source": "local-tarball",
-      "dependencies": {}
     },
     "com.microsoft.mixedreality.sceneunderstanding": {
       "version": "file:MixedReality/com.microsoft.mixedreality.sceneunderstanding-0.6.0.tgz",
@@ -127,7 +115,7 @@
     },
     "com.unity.mathematics": {
       "version": "1.2.6",
-      "depth": 2,
+      "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
@@ -215,8 +203,8 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.xr.arfoundation": {
-      "version": "5.1.1",
-      "depth": 1,
+      "version": "5.1.6",
+      "depth": 0,
       "source": "registry",
       "dependencies": {
         "com.unity.ugui": "1.0.0",

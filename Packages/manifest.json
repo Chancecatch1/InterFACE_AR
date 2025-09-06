@@ -1,9 +1,7 @@
 {
   "dependencies": {
     "com.itisnajim.socketiounity": "https://github.com/itisnajim/SocketIOUnity.git",
-    "com.microsoft.mixedreality.movingplatform": "file:MixedReality/com.microsoft.mixedreality.movingplatform-0.0.3.tgz",
     "com.microsoft.mixedreality.openxr": "file:MixedReality/com.microsoft.mixedreality.openxr-1.11.2.tgz",
-    "com.microsoft.mixedreality.powerthermalnotification": "file:MixedReality/com.microsoft.mixedreality.powerthermalnotification-0.2.1.tgz",
     "com.microsoft.mixedreality.sceneunderstanding": "file:MixedReality/com.microsoft.mixedreality.sceneunderstanding-0.6.0.tgz",
     "com.microsoft.mrtk.graphicstools.unity": "file:MixedReality/com.microsoft.mrtk.graphicstools.unity-0.6.7.tgz",
     "com.microsoft.spatialaudio.spatializer.unity": "file:MixedReality/com.microsoft.spatialaudio.spatializer.unity-2.0.55.tgz",
@@ -14,6 +12,7 @@
     "com.unity.timeline": "1.7.6",
     "com.unity.ugui": "1.0.0",
     "com.unity.visualscripting": "1.9.1",
+    "com.unity.xr.arfoundation": "5.1.6",
     "com.unity.xr.openxr": "1.9.1",
     "org.mixedrealitytoolkit.accessibility": "file:MixedReality/org.mixedrealitytoolkit.accessibility-1.0.3-pre.20.tgz",
     "org.mixedrealitytoolkit.audio": "file:MixedReality/org.mixedrealitytoolkit.audio-3.0.4.tgz",

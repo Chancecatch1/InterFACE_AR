@@ -10,7 +10,7 @@ using UnityEngine.Networking;
 using System;
 using System.Net;
 using System.Text;
-using System.Text.RegularExpressions; //mj
+using System.Text.RegularExpressions;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -32,7 +32,7 @@ public class EventManager : MonoBehaviour
 {
     private Queue<Action> m_queueAction = new Queue<Action>();
     private float timeActivated = float.MinValue;
-    // Add a deduplication set at class scope (mj)
+    // Add a deduplication set at class scope
     HashSet<string> _confirmedOnce = new HashSet<string>();
 
     // public Transform head;
@@ -156,12 +156,8 @@ public class EventManager : MonoBehaviour
 
     bool boolTogglePen = false;
 
-    // CHANGE NOTE (2025-09-02, agent): Split Nurse UI source flags for Current vs Next.
-    // Why: Current panel should be state-based (medication()), Next should use server hints (advanced preparation).
-    // What changed: Introduced useServerHintsForNurseCurrent and useServerHintsForNurseNext.
-    // Behavior/Assumptions: Prevents overwrites and supports hybrid display.
-    // Rollback: Merge back to single flag or toggle both to same value.
-    bool useServerHintsForNurseCurrent = false; // state-based current panel
+    // CHANGE NOTE (2025-09-02, mj): Split Nurse UI source flags for Current vs Next.
+    bool useServerHintsForNurseCurrent = false;  // HINT mode test: use server hints for current panel
     bool useServerHintsForNurseNext = true;    // server hints for next panel
     // Max number of Next Steps items to display (default 3 to fill all slots)
     int MAX_NEXT_STEPS = 3;
@@ -182,10 +178,10 @@ public class EventManager : MonoBehaviour
     //en, fr
     string lang = "en";
     SimpleJSON.JSONNode multi;
-    // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent (mj)
+    // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent
     double bodyWeightKg = 0;
 
-    // Helper to robustly find TMP by tag, even if tag is on a parent (mj)
+    // Helper to robustly find TMP by tag, even if tag is on a parent
     TextMeshProUGUI GetTMPByTag(string tagName)
     {
         var go = GameObject.FindWithTag(tagName);
@@ -229,21 +225,34 @@ public class EventManager : MonoBehaviour
            timer2 = GameObject.FindWithTag("EpiTimer").GetComponent<TextMeshProUGUI>();
         }
 
-        Doc_Cur_1 = GetTMPByTag("Doc_Cur_1");
-        Doc_Cur_2 = GetTMPByTag("Doc_Cur_2");
-        Doc_Cur_3 = GetTMPByTag("Doc_Cur_3");
+        // CHANGE NOTE (2025-09-05, mj)
+        // Query only Doctor or Nurse tags based on active scene name.
 
-        Doc_Next_1 = GetTMPByTag("Doc_Next_1");
-        Doc_Next_2 = GetTMPByTag("Doc_Next_2");
-        Doc_Next_3 = GetTMPByTag("Doc_Next_3");
+        var activeSceneName = SceneManager.GetActiveScene().name.ToLowerInvariant();
+        bool isDoctorScene = activeSceneName.Contains("doctor");
+        bool isNurseScene  = activeSceneName.Contains("nurse");
 
-        Nurse_Cur_1 = GetTMPByTag("Nurse_Cur_1");
-        Nurse_Cur_2 = GetTMPByTag("Nurse_Cur_2");
-        Nurse_Cur_3 = GetTMPByTag("Nurse_Cur_3");
+        if (isDoctorScene)
+        {
+            Doc_Cur_1 = GetTMPByTag("Doc_Cur_1");
+            Doc_Cur_2 = GetTMPByTag("Doc_Cur_2");
+            Doc_Cur_3 = GetTMPByTag("Doc_Cur_3");
 
-        Nurse_Next_1 = GetTMPByTag("Nurse_Next_1");
-        Nurse_Next_2 = GetTMPByTag("Nurse_Next_2");
-        Nurse_Next_3 = GetTMPByTag("Nurse_Next_3");
+            Doc_Next_1 = GetTMPByTag("Doc_Next_1");
+            Doc_Next_2 = GetTMPByTag("Doc_Next_2");
+            Doc_Next_3 = GetTMPByTag("Doc_Next_3");
+        }
+
+        if (isNurseScene)
+        {
+            Nurse_Cur_1 = GetTMPByTag("Nurse_Cur_1");
+            Nurse_Cur_2 = GetTMPByTag("Nurse_Cur_2");
+            Nurse_Cur_3 = GetTMPByTag("Nurse_Cur_3");
+
+            Nurse_Next_1 = GetTMPByTag("Nurse_Next_1");
+            Nurse_Next_2 = GetTMPByTag("Nurse_Next_2");
+            Nurse_Next_3 = GetTMPByTag("Nurse_Next_3");
+        }
 
         if (GameObject.FindWithTag("CardiacRhythm") != null) {
            CardiacRhythm = GameObject.FindWithTag("CardiacRhythm").GetComponent<TextMeshProUGUI>();
@@ -360,6 +369,26 @@ public class EventManager : MonoBehaviour
         sessions = GameObject.FindWithTag("Sessions");
         sessionContainer = GameObject.FindWithTag("SessionContainer");
 
+        // Optional: silence tag warnings in non-matching scenes
+        bool verboseMissingTagLogs = activeSceneName.Contains("hmd_");
+        /*
+        // Temporarily commented out to silence CS8321 (declared but never used)
+        TextMeshProUGUI GetTMPByTagQuiet(string tagName)
+        {
+            var go = GameObject.FindWithTag(tagName);
+            if (go == null)
+            {
+                if (verboseMissingTagLogs)
+                    Debug.LogWarning($"[EventManager] GameObject with tag '{tagName}' not found or inactive.");
+                return null;
+            }
+            var tmp = go.GetComponent<TextMeshProUGUI>();
+            if (tmp != null) return tmp;
+            tmp = go.GetComponentInChildren<TextMeshProUGUI>(true);
+            return tmp;
+        }
+        */
+
         if (noti != null) {
             notiTransform = noti.transform;
         }
@@ -465,6 +494,40 @@ public class EventManager : MonoBehaviour
 *    type: 1 cpr
 *    type: 2 epi
 */
+
+    // CHANGE NOTE (2025-09-05, mj)
+    // Reuse the same formatting as Current/Next Steps for notifications (type 0), hiding calc terms and showing only the final value.
+    string ComposeDoseForNotification(string dose)
+    {
+        if (string.IsNullOrWhiteSpace(dose)) return dose;
+
+        string NormalizeUnitsLocal(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return s;
+            s = s.Replace("cc", "mL").Replace("CC", "mL");
+            s = s.Replace("ML", "mL").Replace("Ml", "mL").Replace("ml", "mL");
+            s = s.Replace("MG", "mg").Replace("Mg", "mg");
+            return s.Trim();
+        }
+
+        string s = NormalizeUnitsLocal(dose);
+        int idx = s.LastIndexOf('=');
+        if (idx >= 0 && idx < s.Length - 1)
+        {
+            string right = s.Substring(idx + 1).Trim();
+            if (!string.IsNullOrWhiteSpace(right))
+            {
+                var m = System.Text.RegularExpressions.Regex.Match(right, @"([0-9]+(?:\.[0-9]+)?\s*(mg|mcg|g|mL|J|mEq|U|units))\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (m.Success) return NormalizeUnitsLocal(m.Groups[1].Value);
+                return right;
+            }
+        }
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?\s*(mg|mcg|g|mL|J|mEq|U|units))\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success) return NormalizeUnitsLocal(m.Groups[1].Value);
+        }
+        return s;
+    }
     void UpdateNoti (string name, string dose, int type) {
         if (noti != null && notiTransform != null) {
             if (type == 0 && notiMedPref != null) {
@@ -473,11 +536,12 @@ public class EventManager : MonoBehaviour
                 notiArr.Add(myInstance);
                 StartCoroutine(Remove_Noti(myInstance, 0));
                 TextMeshProUGUI txt = myInstance.transform.GetChild(0).transform.GetChild(0).transform.GetChild(0).gameObject.GetComponent<TextMeshProUGUI>();
+                string prettyDose = ComposeDoseForNotification(dose);
                 if (lang == "en") {
-                    txt.text = name + "\n" + dose + " given";
+                    txt.text = name + "\n" + prettyDose + " given";
                 }
                 else if (lang == "fr"){
-                    txt.text = name + "\n" + dose + " administré";
+                    txt.text = name + "\n" + prettyDose + " administré";
                 }
             } else if (type == 1 && notiCprPref != null) {
                 GameObject myInstance = Instantiate(notiCprPref, notiTransform);
@@ -493,8 +557,7 @@ public class EventManager : MonoBehaviour
                 StartCoroutine(Remove_Noti(myInstance, 2));
             }
         }
-
-        Debug.Log("name: " + name + ", dose: " + dose);
+        Debug.Log("name: " + name + ", dose: " + ComposeDoseForNotification(dose));
     }
 
     void UpdateUI(SimpleJSON.JSONNode obj)
@@ -531,7 +594,7 @@ public class EventManager : MonoBehaviour
             string NormalizeUnits(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return s;
-                // Volume (mj)
+                // Volume
                 s = s.Replace("cc", "mL").Replace("CC", "mL");
                 s = s.Replace("ML", "mL").Replace("Ml", "mL").Replace("ml", "mL");
                 // Mass
@@ -542,16 +605,16 @@ public class EventManager : MonoBehaviour
                 return s;
             }
 
-            // Extract only the final numeric result part from a calculation string (mj)
+            // Extract only the final numeric result part from a calculation string
             // e.g., "0.01 mg/kg (0.1 ml/kg) = 0.87 mg" -> "0.87 mg"
             string ExtractFinalValue(string param)
             {
                 if (string.IsNullOrWhiteSpace(param)) return "";
                 int idx = param.LastIndexOf('=');
                 string s = (idx >= 0 ? param.Substring(idx + 1) : param).Trim();
-                if (!string.IsNullOrWhiteSpace(s)) return NormalizeUnits(s); // mj
+                if (!string.IsNullOrWhiteSpace(s)) return NormalizeUnits(s);
 
-                // Fallback: try to grab trailing numeric+unit even without '=' // mj
+                // Fallback: try to grab trailing numeric+unit even without '='
                 var m = Regex.Match(param, @"([0-9]+(?:\.[0-9]+)?\s*(mg|mcg|g|mL|ml|J|mEq|U|units))\s*$", RegexOptions.IgnoreCase);
                 if (m.Success)
                 {
@@ -601,6 +664,12 @@ public class EventManager : MonoBehaviour
             string WrapIfLong(string composed)
             {
                 if (string.IsNullOrWhiteSpace(composed)) return composed;
+                try
+                {
+                    composed = Regex.Replace(composed, @"(\d+(?:\.[0-9]+)?)\s+(mg|mcg|g|mL|J|mEq|U|units)\b", "$1\u00A0$2", RegexOptions.IgnoreCase);
+                    composed = Regex.Replace(composed, @"(\d+(?:\.[0-9]+)?)\s+J\s*/\s*kg", "$1\u00A0J/kg", RegexOptions.IgnoreCase);
+                }
+                catch {}
                 if (composed.Length <= 28) return composed;
 
                 int colon = composed.IndexOf(':');
@@ -691,26 +760,29 @@ public class EventManager : MonoBehaviour
             }
 
             // CHANGE NOTE (2025-09-02, mj): Nurse Advanced Preparation specific post-formatting.
-            // Why: Keep general wording unchanged; only standardize units/spacing.
+            // Keep general wording unchanged; only standardize units/spacing.
+            // CHANGE NOTE (2025-09-05, mj): Prevent bad wraps by binding number and unit with a non-breaking space.
             string FormatAdvancedPreparationNurse(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return s;
                 var text = NormalizeUnits(s);
                 text = TidySpacing(text);
+                try
+                {
+                    text = Regex.Replace(text, @"(\d+(?:\.[0-9]+)?)\s+(mg|mcg|g|mL|J|mEq|U|units)\b", "$1\u00A0$2", RegexOptions.IgnoreCase);
+                    text = Regex.Replace(text, @"(\d+(?:\.[0-9]+)?)\s+J\s*/\s*kg", "$1\u00A0J/kg", RegexOptions.IgnoreCase);
+                }
+                catch {}
                 return text;
             }
 
             // CHANGE NOTE (2025-09-01, mj): Compose display text with optional computed final.
-            // Why: If patient weight is unknown or no parameter is provided, we must NOT strip mg/kg from the base text.
-            // What changed: Perform cleaning ONLY when a final numeric value exists; otherwise keep original template text.
-            // Behavior/Assumptions: For shock energy, we keep only per-kg in final and remove absolute J in base.
-            // Rollback: Restore earlier flow that cleaned base text before deciding on final.
             string ComposeTextFinal(SimpleJSON.JSONNode n)
             {
                 if (n == null) return "";
 
                 // CHANGE NOTE (2025-09-02, mj): Process plain string tags through the same dose-selection logic.
-                // Why: Some Nurse Next hints arrive as a raw tag (string). Previously we returned the raw template, so dose rules were skipped.
+                // Some Nurse Next hints arrive as a raw tag (string). Previously we returned the raw template, so dose rules were skipped.
                 string tag = null;
                 string baseRaw = "";
                 string param = null;
@@ -838,7 +910,7 @@ public class EventManager : MonoBehaviour
             if (obj["cprNurseHintsModel"] == null) {
                 
             } else if (useServerHintsForNurseCurrent) {
-                // CHANGE NOTE (2025-09-02, agent): Guarded by useServerHintsForNurseCurrent.
+                // CHANGE NOTE (2025-09-02, mj): Guarded by useServerHintsForNurseCurrent.
                 // Why: Avoid overwriting Medication Orders populated by medication() while PREPARING/READY.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["primaryHints"];
                 Debug.Log(instrunctions);
@@ -851,9 +923,9 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
                     */
-                    // Compose: General text + final value (if any) (mj)
+                    // Compose: General text + final value (if any)
                     string instruction = ComposeTextFinal(instrunctions[i]);
-                    instruction = WrapIfLong(instruction); // mj
+                    instruction = WrapIfLong(instruction);
                     
                     if (i == 0) {
                         if (Nurse_Cur_1 != null) {
@@ -883,10 +955,10 @@ public class EventManager : MonoBehaviour
             if (obj["cprNurseHintsModel"] == null) {
                 
             } else if (useServerHintsForNurseNext) {
-                // CHANGE NOTE (2025-09-02, agent): Guarded by useServerHintsForNurseNext to prevent duplication with medication() UI.
+                // CHANGE NOTE (2025-09-02, mj): Guarded by useServerHintsForNurseNext to prevent duplication with medication() UI.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["nextStepHints"];
 
-                // Next Steps: General text + final value, de-dup with current (by tag+text), cap to MAX_NEXT_STEPS (mj)
+                // Next Steps: General text + final value, de-dup with current (by tag+text), cap to MAX_NEXT_STEPS
                 var curSet = new System.Collections.Generic.HashSet<string>();
                 var curNodesN = obj["cprNurseHintsModel"]["primaryHints"];
                 if (curNodesN != null)
@@ -908,14 +980,14 @@ public class EventManager : MonoBehaviour
 
                 for (int i = 0; i < instrunctions.Count; i++)
                 {
-                    if (filled >= MAX_NEXT_STEPS) break; // mj
-                    string val = ComposeTextFinal(instrunctions[i]); // (mj)
+                    if (filled >= MAX_NEXT_STEPS) break;
+                    string val = ComposeTextFinal(instrunctions[i]);
                     val = FormatAdvancedPreparationNurse(val);
                     val = WrapIfLong(val);
                     if (string.IsNullOrWhiteSpace(val)) continue;
 
                     string key = DedupKeyFromNode(instrunctions[i]);
-                    if (dedupAgainstCurrent && curSet.Contains(key)) continue; // mj
+                    if (dedupAgainstCurrent && curSet.Contains(key)) continue;
                     if (dedupNextSteps && !seen.Add(key)) continue;
 
                     if (filled == 0 && Nurse_Next_1 != null)
@@ -930,7 +1002,7 @@ public class EventManager : MonoBehaviour
                         filled++;
                         continue;
                     }
-                    if (filled == 2 && Nurse_Next_3 != null) // mj
+                    if (filled == 2 && Nurse_Next_3 != null) 
                     {
                         Nurse_Next_3.text = val;
                         filled++;
@@ -952,7 +1024,7 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);                    
                     }
                     */
-                    // Compose: General text + final value (if any) (mj)
+                    // Compose: General text + final value (if any)
                     // Doctor: DO NOT split medication name and dose to two lines (nurse-only).
                     // If the line is too long, we only wrap after ':' or before '(' for readability.
                     string instruction = ComposeTextFinal(instrunctions[i]);
@@ -991,7 +1063,7 @@ public class EventManager : MonoBehaviour
             } else {
                 SimpleJSON.JSONNode instrunctions = obj["cprLeaderHintsModel"]["nextStepHints"];
 
-                // Doctor Next Steps: General text + final value, de-dup (by tag+text), cap to MAX_NEXT_STEPS (mj)
+                // Doctor Next Steps: General text + final value, de-dup (by tag+text), cap to MAX_NEXT_STEPS
                 var curDocSet = new System.Collections.Generic.HashSet<string>();
                 var curNodesD = obj["cprLeaderHintsModel"]["primaryHints"];
                 if (curNodesD != null)
@@ -1013,14 +1085,14 @@ public class EventManager : MonoBehaviour
 
                 for(int i = 0; i < instrunctions.Count; i++)
                 {   
-                    if (filledDoc >= MAX_NEXT_STEPS) break; // (mj)
+                    if (filledDoc >= MAX_NEXT_STEPS) break; 
 
                     // Doctor: Only wrap long lines; do not move dose to a new line (nurse-only behavior).
                     string val = ComposeTextFinal(instrunctions[i]);
                     val = WrapIfLong(val);
                     if (string.IsNullOrWhiteSpace(val)) continue;
 
-                    string key = DedupKeyFromNode(instrunctions[i]); // mj
+                    string key = DedupKeyFromNode(instrunctions[i]);
                     if (dedupAgainstCurrent && curDocSet.Contains(key)) continue; 
                     if (dedupNextSteps && !seenDoc.Add(key)) continue;
 
@@ -1029,12 +1101,12 @@ public class EventManager : MonoBehaviour
                         filledDoc++;
                         continue;
                     }
-                    if (filledDoc == 1 && Doc_Next_2 != null) { //mj
+                    if (filledDoc == 1 && Doc_Next_2 != null) {
                         Doc_Next_2.text = val;
                         filledDoc++;
                         continue;
                     }
-                    if (filledDoc == 2 && Doc_Next_3 != null) { //mj
+                    if (filledDoc == 2 && Doc_Next_3 != null) {
                         Doc_Next_3.text = val;
                         filledDoc++;
                         continue;
@@ -1533,7 +1605,7 @@ public class EventManager : MonoBehaviour
         if (patientModel != null) {
             string weightStr = patientModel["weight"];
             if (weightStr != null){
-                // CHANGE NOTE (2025-09-01, agent): Persist body weight for dose computations later in the same session.
+                // CHANGE NOTE (2025-09-01, mj): Persist body weight for dose computations later in the same session.
                 double w;
                 if (double.TryParse(weightStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out w)) {
                     bodyWeightKg = w;
@@ -1551,7 +1623,7 @@ public class EventManager : MonoBehaviour
             }
         }
 
-        // Detect Confirmation of Medication (mj)
+        // Detect Confirmation of Medication
         SimpleJSON.JSONNode cprMedicationModel = response["cprMedicationModel"];
         if (cprMedicationModel != null) {
             StartCoroutine(medicationInitialize(MedicationFinder.getProcessId()));
@@ -1607,7 +1679,7 @@ public class EventManager : MonoBehaviour
 
                                     bool isAmio = false;
                                     try { isAmio = medIdNum == 1; } catch {}
-                                    bool isEpi = false; // mj
+                                    bool isEpi = false;
                                     try { isEpi = medIdNum == 5; } catch {}
 
                                     bool callUpdateNoti = meds.Count > 1; // avoid duplicate noti with the single-med branch
@@ -1826,7 +1898,7 @@ public class EventManager : MonoBehaviour
 
                 // storedMedJson = tempMedJson;
 
-                // CHANGE NOTE (2025-09-02, agent): Hybrid Nurse UI sources.
+                // CHANGE NOTE (2025-09-02, mj): Hybrid Nurse UI sources.
                 // If server hints drive current, block medication() from writing current by starting iii=3; else allow with iii=0.
                 // If server hints drive next, block medication() from writing next by starting jjj=3; else allow with jjj=0.
                 int iii = useServerHintsForNurseCurrent ? 3 : 0;
@@ -1884,27 +1956,8 @@ public class EventManager : MonoBehaviour
                                 else if (Nurse_Cur_3 != null && iii == 2) { Nurse_Cur_3.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 }
                                 
-                                // CHANGE CHANGE (KO/EN)
-                                // NOTE (2025-09-04, mj)
-                                // 왜(Why): 사용자 요구사항에 따라 약물 카드의 행은 "주문됨(ORDERED = PREPARING/AUTO_PREPARING)"일 때 노란색으로 하이라이트되고,
-                                //         "준비됨(READY)"이 되면 하이라이트를 제거해야 합니다. DONE 유무는 하이라이트 판단에 영향을 주지 않습니다.
-                                // 무엇이 바뀜(What Changed): 하이라이트 조건을 isOrdered && !hasReady 로 단순화했습니다.
-                                // 동작/가정(Behaviour/Assumptions): PREPARING/AUTO_PREPARING이 하나라도 있고, READY 인스턴스가 없으면 노란색.
-                                // 위험평가(Risk Assessment):
-                                // - Level: Low
-                                // - Impact: READY가 생성되는 즉시 노란색이 꺼져 사용자의 의도(주문 상태만 강조)와 일치합니다.
-                                // - Rollback: 필요 시 DONE도 고려하거나, READY 존재 시에도 강조하도록 조건을 되돌릴 수 있습니다.
-                                //
-                                // CHANGE CHANGE (EN)
-                                // NOTE (2025-09-04, mj)
-                                // Why: Per requirement, highlight the medication row when ORDERED (PREPARING/AUTO_PREPARING) and remove it when READY.
-                                //      DONE presence should not affect the highlight decision.
-                                // What Changed: Simplified the condition to isOrdered && !hasReady.
-                                // Behaviour/Assumptions: Yellow if there is any PREPARING/AUTO_PREPARING and no READY instances.
-                                // Risk Assessment:
-                                // - Level: Low
-                                // - Impact: Yellow turns off as soon as READY appears, aligning with user intent.
-                                // - Rollback: Reintroduce DONE checks or relax READY constraints if needed.
+                                // CHANGE NOTE (2025-09-04, mj)
+                                // highlight the medication row when ORDERED (PREPARING/AUTO_PREPARING) and remove it when READY.
                                 {
                                     SimpleJSON.JSONNode medNode1 = storedMedJson[i];
                                     bool hasReady = MedHasStatus(medNode1, "READY");
@@ -1961,24 +2014,9 @@ public class EventManager : MonoBehaviour
                                     iii++;
                                 }
                             }
-                            // CHANGE CHANGE (KO/EN)
-                            // NOTE (2025-09-04, mj)
-                            // 왜(Why): 약물 카드는 "주문됨(ORDERED)"일 때 노란색, "준비됨(READY)"이면 해제되어야 합니다. DONE은 무관합니다.
-                            // 무엇이 바뀜(What Changed): 하이라이트 조건을 isOrdered && !hasReady 로 변경.
-                            // 동작/가정(Behaviour/Assumptions): PREPARING/AUTO_PREPARING 존재 && READY 없음 → 노란색.
-                            // 위험평가(Risk Assessment):
-                            // - Level: Low
-                            // - Impact: READY가 생성되면 즉시 노란색 해제.
-                            // - Rollback: 필요 시 DONE 고려나 조건 완화 가능.
-                            //
-                            // CHANGE CHANGE (EN)
-                            // NOTE (2025-09-04, mj)
-                            // Why: Medication row should be yellow when ORDERED and removed when READY. DONE should not affect.
-                            // What Changed: Use isOrdered && !hasReady.
-                            // Behaviour/Assumptions: Yellow if PREPARING/AUTO_PREPARING exists and no READY.
-                            // Risk Assessment:
-                            // - Level: Low
-                            // - Impact: Turns off as soon as READY appears.
+                            // CHANGE NOTE (2025-09-04, mj)
+                            // Medication row should be yellow when ORDERED and removed when READY. DONE should not affect.
+
                             {
                                 SimpleJSON.JSONNode medNode5 = storedMedJson[i];
                                 bool hasReady = MedHasStatus(medNode5, "READY");
@@ -2616,7 +2654,7 @@ public class EventManager : MonoBehaviour
             
             GameObject pen = GameObject.FindWithTag("PenToggle");
             if (pen == null) { 
-                Debug.LogWarning("PenToggle not found when togglePenMode ran"); 
+                // CHANGE NOTE (2025-09-05, mj): Skip if PenToggle is not found.
                 return; 
             }
             FontIconSelector fis = pen.GetComponentInChildren<FontIconSelector>(true);
@@ -2625,7 +2663,7 @@ public class EventManager : MonoBehaviour
                 return; 
             }
 
-            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on togglePenMode (mj)
+            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on togglePenMode
             // GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
             // GameObject tst = GameObject.FindWithTag("TeamScreenText");
             // if (tsc != null) {
@@ -2686,7 +2724,7 @@ public class EventManager : MonoBehaviour
 
             GameObject pen = GameObject.FindWithTag("PenToggle");
             if (pen == null) { 
-                Debug.LogWarning("PenToggle not found when untogglePenMode ran"); 
+                // CHANGE NOTE (2025-09-05, mj): Skip if PenToggle is not found.
                 return; 
             }
             FontIconSelector fis = pen.GetComponentInChildren<FontIconSelector>(true);
@@ -2695,7 +2733,7 @@ public class EventManager : MonoBehaviour
                 return; 
             }
             
-            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on untogglePenMode (mj)
+            // Disable TeamScreenCanvas, BedCanvas, MonitorCanvas on untogglePenMode
             // GameObject tsc = GameObject.FindWithTag("TeamScreenCanvas");
             // GameObject tst = GameObject.FindWithTag("TeamScreenText");
             // if (tsc != null) {
@@ -2822,27 +2860,8 @@ public class EventManager : MonoBehaviour
         Debug.Log("Logged: " + logEntry);
     }
 
-    // CHANGE CHANGE (KO/EN)
-    // NOTE (2025-09-04, mj)
-    // 왜(Why): 약물 투여 확정(DONE) 시 초록색(그린) 하이라이트/플래시를 사용하면 READY/ORDERED와 시인성 충돌이 있고,
-    //          사용자 요구사항에 따라 노란색 PREPARING 하이라이트만 남기고 나머지 시각 효과(초록색/깜박임)는 제거합니다.
-    // 무엇이 바뀜(What Changed): Confirm(확정) 시 적용되던 초록색 플래시 로직을 전면 비활성화(no-op)했습니다.
-    // 동작/가정(Behaviour/Assumptions): DONE 이벤트가 와도 UI 텍스트 색상/스타일을 변경하지 않습니다.
-    // 위험평가(Risk Assessment):
-    // - Level: Low
-    // - Impact: 약물 목록에서 DONE 알림의 시각적 강조가 사라집니다(요구사항).
-    // - Rollback: 본 함수를 과거 구현(FlashGreen 코루틴 호출)으로 되돌리면 됩니다.
-    //
-    // CHANGE CHANGE (EN)
-    // NOTE (2025-09-04, mj)
-    // Why: A green confirm flash conflicts with the visibility model for READY/ORDERED and per requirement we keep only the yellow PREPARING highlight,
-    //      removing green and blinking effects.
-    // What Changed: This method is now a no-op; the previous green flash on confirmation is disabled.
-    // Behaviour/Assumptions: DONE events no longer change text color/style.
-    // Risk Assessment:
-    // - Level: Low
-    // - Impact: Visual confirmation highlight is removed from the medication list (as requested).
-    // - Rollback: Reintroduce the prior FlashGreen coroutine call here.
+    // CHANGE NOTE (2025-09-04, mj)
+    // A green confirm flash conflicts with the visibility model for READY/ORDERED and per requirement I keep only the yellow PREPARING highlight,
     void ConfirmFlashOrderDisplay(string medDisplayName, float seconds = 1.6f)
     {
         // intentionally left blank (no-op)
@@ -2862,50 +2881,9 @@ public class EventManager : MonoBehaviour
         t.fontStyle = origStyle;
     }
 
-    // CHANGE CHANGE (KO/EN)
-    // NOTE (2025-09-04, mj)
-    // 왜(Why): 약물 리스트에서 PREPARING(= ordered) 상태만 노란색으로 강조하고, 다른 상태의 초록색/깜박임 효과는 제거합니다.
-    // 무엇이 바뀜(What Changed): 아래 하이라이트 색상은 노란색만 유지하며, 다른 색상/블링크 로직은 별도로 제거되었습니다.
-    // 동작/가정(Behaviour/Assumptions): 키워드를 포함한 텍스트에만 굵게+노란색을 적용합니다(on=true). off면 흰색/보통 글꼴로 복구.
-    // 위험평가(Risk Assessment):
-    // - Level: Low
-    // - Impact: READY/DONE 등에서 색상 강조가 더 이상 나타나지 않음(요구사항 반영).
-    // - Rollback: 필요 시 색상/스타일을 재도입하면 됩니다.
-    //
-    // CHANGE CHANGE (EN)
-    // NOTE (2025-09-04, mj)
-    // Why: Keep only a yellow highlight for PREPARING(= ordered) items and remove any green/blink effects.
-    // What Changed: This helper applies only yellow emphasis; other color/blink behaviors were removed elsewhere.
-    // Behaviour/Assumptions: Applies bold+yellow when the key matches; otherwise resets to normal/white.
-    // Risk Assessment:
-    // - Level: Low
-    // - Impact: No more highlights for READY/DONE (per requirement).
-    // - Rollback: Reintroduce alternative colors or effects as needed.
-    // CHANGE CHANGE (KO/EN)
-    // NOTE (2025-09-04, mj)
-    // 왜(Why): 노란색 하이라이트가 잘 눈에 띄지 않는 문제를 개선하기 위해, 더 진한 앰버톤 색상과
-    //          TextMesh Pro 아웃라인(검정)을 함께 적용해 가독성을 높였습니다.
-    // 무엇이 바뀜(What Changed): 하이라이트 on 시 굵게(Bold) + 진한 노란색(#FFDA1A 근사) + OutlineWidth(~0.2) 적용,
-    //          off 시 기존 색/스타일(흰색/보통)로 복구하고 OutlineWidth=0으로 되돌립니다.
-    // 동작/가정(Behaviour/Assumptions): TextMesh Pro SDF 머티리얼을 사용하며, fontMaterial 접근 시 인스턴스가 생성되어
-    //          개별 텍스트에만 Outline 설정이 적용됩니다(공유 머티리얼 변경 방지).
-    // 위험평가(Risk Assessment):
-    // - Level: Low
-    // - Impact: 텍스트 대비가 높아져 하이라이트 인지성이 향상됩니다.
-    // - Rollback: 색상/Outline 폭을 원래 값으로 되돌리면 됩니다.
-    //
-    // CHANGE CHANGE (EN)
-    // NOTE (2025-09-04, mj)
-    // Why: The yellow highlight was not sufficiently visible. We now apply a richer amber color and a black outline
-    //      to improve readability.
-    // What Changed: On highlight ON: Bold + strong yellow (~#FFDA1A) + OutlineWidth(~0.2). On highlight OFF: restore
-    //      white/normal and set OutlineWidth back to 0.
-    // Behaviour/Assumptions: Uses TextMesh Pro SDF material; accessing fontMaterial creates a per-instance material
-    //      to avoid changing shared assets.
-    // Risk Assessment:
-    // - Level: Low
-    // - Impact: Better contrast and visibility of highlighted rows.
-    // - Rollback: Revert color/outline width to previous values.
+    // CHANGE NOTE (2025-09-04, mj)
+    // The yellow highlight was not sufficiently visible. We now apply a richer amber color and a black outline to improve readability.
+
     void ApplyOrderHighlight(TMPro.TextMeshProUGUI t, string key, bool on)
     {
         if (t == null || string.IsNullOrEmpty(t.text)) return;
@@ -2942,7 +2920,7 @@ public class EventManager : MonoBehaviour
         }
     }
 
-    void SetOrderNormalFor(string medDisplayName) // mj
+    void SetOrderNormalFor(string medDisplayName)
     {
         void Apply(TMPro.TextMeshProUGUI t)
         {
@@ -2986,41 +2964,117 @@ public class EventManager : MonoBehaviour
         return MedHasStatus(medNode, "PREPARING") || MedHasStatus(medNode, "AUTO_PREPARING");
     }
 
+    // CHANGE NOTE (2025-09-05, mj)
+    // highlight ALL texts in the Amiodarone/Epinephrine row inside Medication_List.
+
+    class OriginalTMPState { public Color color; public TMPro.FontStyles style; }
+    Dictionary<int, OriginalTMPState> _origMedListTMP = new Dictionary<int, OriginalTMPState>();
+
+    Transform FindMedicationListRoot()
+    {
+        GameObject go = GameObject.Find("Medication_List (1)");
+        if (go == null) go = GameObject.Find("Medication_List");
+        if (go == null) go = GameObject.Find("Medication_List 3");
+        return go != null ? go.transform : null;
+    }
+
+    void ApplyMedicationListRowHighlight(string medKey, bool on)
+    {
+        if (string.IsNullOrEmpty(medKey)) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        // Find any TMP containing the medication key
+        var tmps = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        TMPro.TextMeshProUGUI leaf = null;
+        for (int i = 0; i < tmps.Length; i++)
+        {
+            var t = tmps[i];
+            if (t != null && !string.IsNullOrEmpty(t.text) &&
+                t.text.IndexOf(medKey, System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                leaf = t;
+                break;
+            }
+        }
+        if (leaf == null) return;
+
+        // Choose the highest ancestor under list root whose subtree contains medKey but NOT the other med key
+        string amio = FindMultiLang("Amiodarone");
+        string epi  = FindMultiLang("Epinephrine");
+        string otherKey = string.Equals(medKey, amio, System.StringComparison.OrdinalIgnoreCase) ? epi : amio;
+
+        Transform rowRoot = null;
+        Transform cursor = leaf.transform;
+        for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+        {
+            var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            bool hasMed = false, hasOther = false;
+            for (int j = 0; j < desc.Length; j++)
+            {
+                var dt = desc[j];
+                if (dt == null || string.IsNullOrEmpty(dt.text)) continue;
+                var txt = dt.text;
+                if (!hasMed && txt.IndexOf(medKey, System.StringComparison.OrdinalIgnoreCase) >= 0) hasMed = true;
+                if (!hasOther && txt.IndexOf(otherKey, System.StringComparison.OrdinalIgnoreCase) >= 0) hasOther = true;
+                if (hasMed && hasOther) break;
+            }
+            if (hasMed && !hasOther)
+            {
+                rowRoot = cursor; // keep highest matching ancestor
+            }
+            cursor = cursor.parent;
+        }
+
+        // Fallback: immediate parent if heuristic fails
+        if (rowRoot == null) rowRoot = leaf.transform.parent != null ? leaf.transform.parent : leaf.transform;
+
+        var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        for (int i = 0; i < rowTmps.Length; i++)
+        {
+            var t = rowTmps[i];
+            if (t == null) continue;
+            int id = t.GetInstanceID();
+            if (!_origMedListTMP.ContainsKey(id))
+            {
+                _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+            }
+            if (on)
+            {
+                t.fontStyle = TMPro.FontStyles.Bold;
+                t.color = amber;
+            }
+            else
+            {
+                try
+                {
+                    var orig = _origMedListTMP[id];
+                    if (orig != null)
+                    {
+                        t.fontStyle = orig.style;
+                        t.color = orig.color;
+                    }
+                }
+                catch {}
+            }
+        }
+    }
+
     void HighlightAmiodaroneOrder(bool on)
     {
         string key = FindMultiLang("Amiodarone");
-        // Highlight only in Medication Order (current), not in Next Steps
-        ApplyOrderHighlight(Nurse_Cur_1, key, on);
-        ApplyOrderHighlight(Nurse_Cur_2, key, on);
-        ApplyOrderHighlight(Nurse_Cur_3, key, on);
+        // Medication orders highlight removed; apply only to Medication_List row
+        ApplyMedicationListRowHighlight(key, on);
     }
 
-    // CHANGE CHANGE (KO/EN)
-    // NOTE (2025-09-04, mj)
-    // 왜(Why): 요구사항에 따라 약물 리스트의 깜박임(blink) 효과를 전부 제거합니다. 노란색 PREPARING 하이라이트만 유지합니다.
-    // 무엇이 바뀜(What Changed): BlinkText/SetBlink 및 약물별 Blink 함수(Amiodarone/Epinephrine)를 코드에서 제거했습니다.
-    // 동작/가정(Behaviour/Assumptions): 어떤 상태에서도 텍스트 깜박임을 사용하지 않습니다.
-    // 위험평가(Risk Assessment):
-    // - Level: Low
-    // - Impact: 시각적 깜박임이 사라져 눈 피로/주의 분산이 줄어듭니다.
-    // - Rollback: 필요 시 해당 함수들을 복구하여 호출부에 재연결하면 됩니다.
-    //
-    // CHANGE CHANGE (EN)
-    // NOTE (2025-09-04, mj)
-    // Why: Per requirement, remove all blinking effects from the medication list UI, keeping only the yellow PREPARING highlight.
-    // What Changed: Removed BlinkText/SetBlink and per-medication Blink helpers (Amiodarone/Epinephrine).
-    // Behaviour/Assumptions: No blinking text for any state.
-    // Risk Assessment:
-    // - Level: Low
-    // - Impact: Less visual distraction; align with requested visual language.
-    // - Rollback: Reintroduce the removed methods and their call sites if needed.
+    // CHANGE NOTE (2025-09-04, mj)
+    // remove all blinking effects from the medication list UI, keeping only the yellow PREPARING highlight.
 
     void HighlightEpinephrineOrder(bool on)
     {
         string key = FindMultiLang("Epinephrine");
-        // Highlight only in Medication Order (current), not in Next Steps
-        ApplyOrderHighlight(Nurse_Cur_1, key, on);
-        ApplyOrderHighlight(Nurse_Cur_2, key, on);
-        ApplyOrderHighlight(Nurse_Cur_3, key, on);
+        // Medication orders highlight removed; apply only to Medication_List row
+        ApplyMedicationListRowHighlight(key, on);
     }
 }
