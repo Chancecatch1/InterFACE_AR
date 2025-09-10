@@ -2712,7 +2712,7 @@ if (medID == 1) {
                     bool highlightH = isOrderedH && !hasReadyH;
                     // removed debug
                     
-                    // If this med requires Name+Dose matching, attempt dose-aware highlight
+                    // If this med requires Name+Dose matching, highlight rows per dose (e.g., 1500 mg / 2500 mg)
                     if (_requireDoseMedIds.Contains(medIdForHighlight))
                     {
                         string medName = null;
@@ -2720,50 +2720,55 @@ if (medID == 1) {
                         {
                             try { medName = FindMultiLang(nm); } catch { medName = nm; }
                         }
-                        // find first PREPARING dose label
-                        string doseLabel = null;
+                        // Collect all PREPARING/AUTO_PREPARING dose tokens for this medication
+                        var prepDoseTokens = new System.Collections.Generic.List<string>();
                         try
                         {
                             var doses = medNodeH["doses"];
                             if (doses != null)
                             {
-                                for (int di = 0; di < doses.Count && doseLabel == null; di++)
+                                for (int di = 0; di < doses.Count; di++)
                                 {
                                     var diArr = doses[di]["doseInstances"];
                                     if (diArr == null) continue;
+                                    bool hasPrep = false;
                                     for (int ii = 0; ii < diArr.Count; ii++)
                                     {
-                                        if ((string)diArr[ii]["status"] == "PREPARING" || (string)diArr[ii]["status"] == "AUTO_PREPARING")
-                                        {
-                                            doseLabel = doses[di]["label"];
-                                            break;
-                                        }
+                                        string st = diArr[ii]["status"];
+                                        if (st == "PREPARING" || st == "AUTO_PREPARING") { hasPrep = true; break; }
+                                    }
+                                    if (!hasPrep) continue;
+                                    string lbl = doses[di]["label"];
+                                    string tok = ExtractFinalDoseToken(lbl);
+                                    if (!string.IsNullOrWhiteSpace(tok) && IsDoseAllowedForMed(medIdForHighlight, tok))
+                                    {
+                                        prepDoseTokens.Add(tok);
                                     }
                                 }
                             }
                         }
                         catch {}
 
-                        // removed debug
-
-                        if (highlightH && !string.IsNullOrWhiteSpace(medName))
+                        // First clear known dose rows to avoid stale highlights
+                        if (!string.IsNullOrWhiteSpace(medName))
                         {
-                            // For Gluconate/Bicarb/Glucose: use name-only row highlight (no dose dependency)
-                            ApplyMedicationRowByNameOnly(medName, true);
+                            if (medIdForHighlight == 4) { ApplyMedicationDoseRowHighlight(medName, "1500 mg", false); ApplyMedicationDoseRowHighlight(medName, "2500 mg", false); }
+                            else if (medIdForHighlight == 18) { ApplyMedicationDoseRowHighlight(medName, "25 mEq", false); ApplyMedicationDoseRowHighlight(medName, "50 mEq", false); }
+                        }
+
+                        if (highlightH && !string.IsNullOrWhiteSpace(medName) && prepDoseTokens.Count > 0)
+                        {
+                            for (int k = 0; k < prepDoseTokens.Count; k++)
+                            {
+                                ApplyMedicationDoseRowHighlight(medName, prepDoseTokens[k], true);
+                            }
                         }
                         else
                         {
-                            // ensure off when highlight off or keys missing
-                            if (!highlightH && !string.IsNullOrWhiteSpace(medName))
-                            {
-                                // turn off row highlight by name
-                                ApplyMedicationRowByNameOnly(medName, false);
-                            }
-                            else
-                            {
-                                // fall back to ID-based but will likely no-op since rows may be unknown
-                                HighlightMedicationOrderById(medIdForHighlight, highlightH);
-                            }
+                            // Also ensure any name-only highlight is cleared
+                            if (!string.IsNullOrWhiteSpace(medName)) { ApplyMedicationNameOnlyHighlight(medName, false); }
+                            // Finally, ensure id-based path is off
+                            HighlightMedicationOrderById(medIdForHighlight, false);
                         }
                     }
                     else
@@ -3628,7 +3633,7 @@ if (medID == 1) {
 
     // CHANGE NOTE (2025-09-10, mj): dose-required meds expanded (name + dose must co-exist)
     // Per-medication policy: whether this medication requires Name+Dose (AND) matching
-    System.Collections.Generic.HashSet<int> _requireDoseMedIds = new System.Collections.Generic.HashSet<int>();
+    System.Collections.Generic.HashSet<int> _requireDoseMedIds = new System.Collections.Generic.HashSet<int>{ 4, 18 };
 
     // Cache for Medication_List root to avoid repeated scanning
     Transform _medListRootCache = null;
@@ -3911,7 +3916,11 @@ if (medID == 1) {
         if (_uiNameByMedId.TryGetValue(medId, out var nm))
         {
             string name = null; try { name = FindMultiLang(nm); } catch { name = nm; }
+            // Clear name-only highlight first
             ApplyMedicationNameOnlyHighlight(name, false);
+            // For dose-required meds, also clear both known dose rows to avoid residual highlights
+            if (medId == 4) { ApplyMedicationDoseRowHighlight(name, "1500 mg", false); ApplyMedicationDoseRowHighlight(name, "2500 mg", false); }
+            else if (medId == 18) { ApplyMedicationDoseRowHighlight(name, "25 mEq", false); ApplyMedicationDoseRowHighlight(name, "50 mEq", false); }
         }
         else
         {
@@ -4288,6 +4297,7 @@ if (medID == 1) {
         return false;
     }
 
+    // CHANGE NOTE (2025-09-10, mj): Dose-row highlight anchors to the dose leaf to avoid table-wide highlight; used for ids 4,18
     // Dose-aware row highlighting inside Medication_List only (med name + dose)
     void ApplyMedicationDoseRowHighlight(string medNameKey, string doseKey, bool on)
     {
@@ -4305,60 +4315,86 @@ if (medID == 1) {
         }
 
         string medKey = Canon(medNameKey);
-        string doseK = Canon(doseKey);
-        if (string.IsNullOrEmpty(medKey) || string.IsNullOrEmpty(doseK)) return;
+        string doseCanonKey = CanonDoseForCompare(doseKey);
+        if (string.IsNullOrEmpty(medKey) || string.IsNullOrEmpty(doseCanonKey)) return;
 
-        var groups = root.GetComponentsInChildren<Transform>(true);
-        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        var tmpsAll = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        if (tmpsAll == null || tmpsAll.Length == 0) return;
 
-        for (int gi = 0; gi < groups.Length; gi++)
+        // 1) Find a leaf that contains the dose token (canonicalized), then ascend to the nearest row container
+        for (int i = 0; i < tmpsAll.Length; i++)
         {
-            var g = groups[gi];
-            if (g == null || g == root) continue;
-            var tmps = g.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
-            int cnt = tmps != null ? tmps.Length : 0;
-            if (cnt == 0 || cnt > 80) continue;
+            var leaf = tmpsAll[i];
+            if (leaf == null || string.IsNullOrEmpty(leaf.text)) continue;
+            string leafDoseCanon = CanonDoseForCompare(leaf.text);
+            if (leafDoseCanon.IndexOf(doseCanonKey, System.StringComparison.Ordinal) < 0) continue;
 
-            System.Text.StringBuilder sb = new System.Text.StringBuilder(256);
-            for (int t = 0; t < tmps.Length; t++)
+            // Try to locate an explicit MedicationRow marker first
+            Transform rowRoot = null;
+            Transform cursor = leaf.transform;
+            Transform foundRowWithMarker = null;
+            for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
             {
-                var gt = tmps[t];
-                if (gt == null || string.IsNullOrEmpty(gt.text)) continue;
-                sb.Append(Canon(gt.text));
+                try { var mr = cursor.gameObject.GetComponent<MedicationRow>(); if (mr != null) { foundRowWithMarker = cursor; break; } } catch {}
+                cursor = cursor.parent;
             }
-            string canon = sb.ToString();
-            if (canon.IndexOf(medKey, System.StringComparison.Ordinal) >= 0 &&
-                canon.IndexOf(doseK, System.StringComparison.Ordinal) >= 0)
+            if (foundRowWithMarker != null) rowRoot = foundRowWithMarker;
+            if (rowRoot == null)
             {
-                for (int j = 0; j < tmps.Length; j++)
+                cursor = leaf.transform;
+                for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
                 {
-                    var t = tmps[j];
-                    if (t == null) continue;
-                    int id = t.GetInstanceID();
-                    if (!_origMedListTMP.ContainsKey(id))
-                    {
-                        _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
-                    }
-                    if (on)
-                    {
-                        t.fontStyle = TMPro.FontStyles.Bold;
-                        t.color = amber;
-                    }
-                    else
-                    {
-                        try
-                        {
-                            var orig = _origMedListTMP[id];
-                            if (orig != null)
-                            {
-                                t.fontStyle = orig.style;
-                                t.color = orig.color;
-                            }
-                        }
-                        catch {}
-                    }
+                    var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+                    int cnt = desc != null ? desc.Length : 0;
+                    if (cnt >= 2 && cnt <= 80) { rowRoot = cursor; break; }
+                    cursor = cursor.parent;
                 }
             }
+            if (rowRoot == null) continue;
+
+            // Ensure the same row also contains the medication name (guard against false positives)
+            bool rowHasMedName = false;
+            var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            for (int j = 0; j < rowTmps.Length; j++)
+            {
+                var t = rowTmps[j];
+                if (t == null || string.IsNullOrEmpty(t.text)) continue;
+                string canon = Canon(t.text);
+                if (canon.IndexOf(medKey, System.StringComparison.Ordinal) >= 0) { rowHasMedName = true; break; }
+            }
+            if (!rowHasMedName) continue;
+
+            // 2) Apply highlight to the entire row only
+            var amber = new Color(1f, 0.85f, 0.1f, 1f);
+            for (int j = 0; j < rowTmps.Length; j++)
+            {
+                var t = rowTmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
+            }
+            return; // exactly one row per call
         }
     }
 
@@ -4467,8 +4503,8 @@ if (medID == 1) {
         }
         if (medId == 18)
         {
-            // 8.4% Sodium Bicarb: allow only 15 mEq or 50 mEq
-            return t == "15meq" || t == "50meq";
+            // 8.4% Sodium Bicarb: allow only 25 mEq or 50 mEq
+            return t == "25meq" || t == "50meq";
         }
         return true; // other meds: no gating
     }
