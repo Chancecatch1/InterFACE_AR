@@ -177,8 +177,6 @@ public class EventManager : MonoBehaviour
     List<string> lastHintNext = new List<string>();
     // DEBUG OFF by default: Glucose highlight diagnostics (can be toggled if needed)
     bool debugGlucoseHighlight = false; // set true to enable logs
-    // remove forced highlight in production
-    bool forceGlucoseNameHighlightAlways = false;
     void DebugLogGlucoseHighlight(string message) { if (debugGlucoseHighlight) Debug.Log(message); }
     // track previous ordered state per med id for nurse next panel
     Dictionary<int, bool> prevOrderedByMedId = new Dictionary<int, bool>();
@@ -2748,27 +2746,18 @@ if (medID == 1) {
 
                         // removed debug
 
-                        if (highlightH && !string.IsNullOrWhiteSpace(medName) && !string.IsNullOrWhiteSpace(doseLabel))
+                        if (highlightH && !string.IsNullOrWhiteSpace(medName))
                         {
-                            // Highlight for any PREPARING dose (server-provided final dose varies by weight)
-                            string finalDose = ExtractFinalDoseToken(doseLabel);
-                            // Highlight only the row that contains (name AND this dose), and only the name within that row
-                            if (!string.IsNullOrWhiteSpace(finalDose) && RowHasNameAndDose(medName, finalDose))
-                            {
-                                ApplyMedicationNameOnRow(medName, finalDose, true);
-                            }
+                            // For Gluconate/Bicarb/Glucose: use name-only row highlight (no dose dependency)
+                            ApplyMedicationRowByNameOnly(medName, true);
                         }
                         else
                         {
                             // ensure off when highlight off or keys missing
-                            if (!highlightH && !string.IsNullOrWhiteSpace(medName) && !string.IsNullOrWhiteSpace(doseLabel))
+                            if (!highlightH && !string.IsNullOrWhiteSpace(medName))
                             {
-                                // turn off name-on-row highlight for this (name,dose) pair
-                                string finalDose = ExtractFinalDoseToken(doseLabel);
-                                if (!string.IsNullOrWhiteSpace(finalDose))
-                                {
-                                    ApplyMedicationNameOnRow(medName, finalDose, false);
-                                }
+                                // turn off row highlight by name
+                                ApplyMedicationRowByNameOnly(medName, false);
                             }
                             else
                             {
@@ -2779,7 +2768,7 @@ if (medID == 1) {
                     }
                     else
                     {
-                        if (medIdForHighlight == 8 && highlightH)
+                        if (medIdForHighlight == 8)
                         {
                             // Glucose: force row anchoring by current final dose if available, else fallback to simple ID name-only
                             string medName = null;
@@ -2791,18 +2780,22 @@ if (medID == 1) {
                             }
                             catch {}
                             string finalDose = ExtractFinalDoseToken(doseLabel);
-                            if (!string.IsNullOrWhiteSpace(medName) && !string.IsNullOrWhiteSpace(finalDose) && RowHasNameAndDose(medName, finalDose))
+                            if (highlightH) { ApplyMedicationRowByNameOnly(medName, true); }
+                            else { ApplyMedicationRowByNameOnly(medName, false); }
+                        }
+                        else
+                        {
+                            // General meds: row-level highlight anchored by name leaf (safer)
+                            string medName = null;
+                            if (_uiNameByMedId.TryGetValue(medIdForHighlight, out var nmGen)) { try { medName = FindMultiLang(nmGen); } catch { medName = nmGen; } }
+                            if (!string.IsNullOrWhiteSpace(medName))
                             {
-                                ApplyMedicationNameOnRow(medName, finalDose, true);
+                                ApplyMedicationRowByNameOnly(medName, highlightH);
                             }
                             else
                             {
                                 HighlightMedicationOrderById(medIdForHighlight, highlightH);
                             }
-                        }
-                        else
-                        {
-                            HighlightMedicationOrderById(medIdForHighlight, highlightH);
                         }
                     }
                     if (!highlightH) {
@@ -3635,7 +3628,7 @@ if (medID == 1) {
 
     // CHANGE NOTE (2025-09-10, mj): dose-required meds expanded (name + dose must co-exist)
     // Per-medication policy: whether this medication requires Name+Dose (AND) matching
-    System.Collections.Generic.HashSet<int> _requireDoseMedIds = new System.Collections.Generic.HashSet<int> { 4, 8, 15, 18 };
+    System.Collections.Generic.HashSet<int> _requireDoseMedIds = new System.Collections.Generic.HashSet<int>();
 
     // Cache for Medication_List root to avoid repeated scanning
     Transform _medListRootCache = null;
@@ -3838,6 +3831,78 @@ if (medID == 1) {
             path = t.name + "/" + path;
         }
         return path;
+    }
+
+    // Glucose (starting dose) row-level highlight by UI tokens (independent of server dose value)
+    void ApplyGlucoseRowHighlight(bool on)
+    {
+        if (!IsNurseSceneActive()) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        var tmpsAll = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        if (tmpsAll == null || tmpsAll.Length == 0) return;
+
+        // Prefer anchoring from a leaf that contains "D10W" to avoid matching 'glucose' in other rows (e.g., insulin instructions)
+        for (int i = 0; i < tmpsAll.Length; i++)
+        {
+            var leaf = tmpsAll[i];
+            if (leaf == null || string.IsNullOrEmpty(leaf.text)) continue;
+            if (leaf.text.IndexOf("D10W", System.StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+            // ascend to row-like container (2..80 texts) or MedicationRow marker
+            Transform cursor = leaf.transform;
+            Transform rowRoot = null;
+            for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+            {
+                try { var mr = cursor.gameObject.GetComponent<MedicationRow>(); if (mr != null) { rowRoot = cursor; break; } } catch {}
+                cursor = cursor.parent;
+            }
+            if (rowRoot == null)
+            {
+                cursor = leaf.transform;
+                for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+                {
+                    var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+                    int cnt = desc != null ? desc.Length : 0;
+                    if (cnt >= 2 && cnt <= 80) { rowRoot = cursor; break; }
+                    cursor = cursor.parent;
+                }
+            }
+            if (rowRoot == null) continue;
+
+            var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            for (int j = 0; j < rowTmps.Length; j++)
+            {
+                var t = rowTmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
+            }
+            return; // only first matched row
+        }
     }
 
     // Reset highlight by medId
@@ -4089,6 +4154,97 @@ if (medID == 1) {
         }
     }
 
+    // Row-by-name highlight: anchor from the name leaf and apply to the entire row (all 5 cells)
+    void ApplyMedicationRowByNameOnly(string medNameKey, bool on)
+    {
+        if (string.IsNullOrWhiteSpace(medNameKey)) return;
+        if (!IsNurseSceneActive()) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        string Canon(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.ToLowerInvariant();
+            try { s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9]", ""); } catch {}
+            return s.Trim();
+        }
+
+        string nameKey = Canon(medNameKey);
+        if (nameKey.Length < 3) return;
+
+        var groups = root.GetComponentsInChildren<Transform>(true);
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        for (int gi = 0; gi < groups.Length; gi++)
+        {
+            var g = groups[gi];
+            if (g == null || g == root) continue;
+            var tmps = g.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            if (tmps == null || tmps.Length == 0 || tmps.Length > 80) continue;
+
+            // Step 1: find the name leaf inside this group
+            Transform rowRoot = null;
+            for (int t = 0; t < tmps.Length; t++)
+            {
+                var leaf = tmps[t];
+                if (leaf == null || string.IsNullOrEmpty(leaf.text)) continue;
+                string leafCanon = Canon(leaf.text);
+                if (leafCanon.IndexOf(nameKey, System.StringComparison.Ordinal) < 0) continue;
+                // ascend to row-like container (2..80 texts) or MedicationRow marker
+                Transform cursor = leaf.transform;
+                Transform foundRowWithMarker = null;
+                for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+                {
+                    try { var mr = cursor.gameObject.GetComponent<MedicationRow>(); if (mr != null) { foundRowWithMarker = cursor; break; } } catch {}
+                    cursor = cursor.parent;
+                }
+                cursor = leaf.transform;
+                for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+                {
+                    var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+                    int cnt = desc != null ? desc.Length : 0;
+                    if (cnt >= 2 && cnt <= 80) { rowRoot = cursor; break; }
+                    cursor = cursor.parent;
+                }
+                if (foundRowWithMarker != null) rowRoot = foundRowWithMarker;
+                if (rowRoot != null) break;
+            }
+            if (rowRoot == null) continue;
+
+            // Step 2: apply to entire row TMPs
+            var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            for (int j = 0; j < rowTmps.Length; j++)
+            {
+                var t = rowTmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
+            }
+            return; // one row only
+        }
+    }
+
     // Check if there exists a row that contains both the medication name and the dose token
     bool RowHasNameAndDose(string medNameKey, string doseToken)
     {
@@ -4319,22 +4475,22 @@ if (medID == 1) {
 
     void HighlightAmiodaroneOrder(bool on)
     {
-        // Name-only highlight for consistency across all meds
+        // Row-level highlight by name (apply to entire row of 5 cells)
         if (_uiNameByMedId.TryGetValue(1, out var nm))
         {
             string name = null; try { name = FindMultiLang(nm); } catch { name = nm; }
-            ApplyMedicationNameOnlyHighlight(name, on);
+            ApplyMedicationListRowHighlight(name, on);
         }
     }
 
 
     void HighlightEpinephrineOrder(bool on)
     {
-        // Name-only highlight for consistency across all meds
+        // Row-level highlight by name (apply to entire row of 5 cells)
         if (_uiNameByMedId.TryGetValue(5, out var nm))
         {
             string name = null; try { name = FindMultiLang(nm); } catch { name = nm; }
-            ApplyMedicationNameOnlyHighlight(name, on);
+            ApplyMedicationListRowHighlight(name, on);
         }
     }
     
