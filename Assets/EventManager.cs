@@ -154,11 +154,12 @@ public class EventManager : MonoBehaviour
     bool cpr_5sec_coroutine = false;
     bool epi_5sec_coroutine = false;
 
+
     bool boolTogglePen = false;
 
     // CHANGE NOTE (2025-09-02, mj): Split Nurse UI source flags for Current vs Next.
     bool useServerHintsForNurseCurrent = false;  // HINT mode test: use server hints for current panel
-    bool useServerHintsForNurseNext = true;    // server hints for next panel
+    bool useServerHintsForNurseNext = false;    // server hints for next panel
     // Max number of Next Steps items to display (default 3 to fill all slots)
     int MAX_NEXT_STEPS = 3;
     // De-duplication controls (defaults keep previous behavior)
@@ -169,6 +170,69 @@ public class EventManager : MonoBehaviour
     ArrayList notiCprArr = new ArrayList();
     ArrayList notiEpiArr = new ArrayList();
     ArrayList sessionArr = new ArrayList();
+
+    // CHANGE NOTE (2025-09-09, mj): add queue for nurse next panel
+    // Accumulates hints/overflow in order of arrival, removing duplicates.
+    List<string> nurseNextQueue = new List<string>();
+    List<string> lastHintNext = new List<string>();
+    // track previous ordered state per med id for nurse next panel
+    Dictionary<int, bool> prevOrderedByMedId = new Dictionary<int, bool>();
+
+    string CanonicalizeSimple(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        s = s.Replace("•", " ").Trim().ToLowerInvariant();
+        try { s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " "); } catch {}
+        return s;
+    }
+
+    void NurseNextAppendIfNew(string item)
+    {
+        string key = CanonicalizeSimple(item);
+        if (string.IsNullOrWhiteSpace(key)) return;
+        for (int i = 0; i < nurseNextQueue.Count; i++)
+        {
+            if (CanonicalizeSimple(nurseNextQueue[i]) == key) return; // already exists
+        }
+        nurseNextQueue.Add(item);
+    }
+
+    void NurseNextPruneTo(System.Collections.Generic.HashSet<string> expectedKeys)
+    {
+        var kept = new List<string>(nurseNextQueue.Count);
+        for (int i = 0; i < nurseNextQueue.Count; i++)
+        {
+            var it = nurseNextQueue[i];
+            if (expectedKeys.Contains(CanonicalizeSimple(it))) kept.Add(it);
+        }
+        nurseNextQueue = kept;
+    }
+
+    void NurseNextRender()
+    {
+        // NEXT panel shows FIFO excluding current head
+        if (Nurse_Next_1 != null) Nurse_Next_1.text = nurseNextQueue.Count > 1 ? nurseNextQueue[1] : "";
+        if (Nurse_Next_2 != null) Nurse_Next_2.text = nurseNextQueue.Count > 2 ? nurseNextQueue[2] : "";
+        if (Nurse_Next_3 != null) Nurse_Next_3.text = nurseNextQueue.Count > 3 ? nurseNextQueue[3] : "";
+    }
+
+    void NurseNextRemoveByMedName(string medDisplayName)
+    {
+        if (string.IsNullOrWhiteSpace(medDisplayName)) return;
+        string key = CanonicalizeSimple(medDisplayName);
+        var kept = new List<string>(nurseNextQueue.Count);
+        for (int i = 0; i < nurseNextQueue.Count; i++)
+        {
+            var it = nurseNextQueue[i];
+            if (CanonicalizeSimple(it).IndexOf(key, System.StringComparison.Ordinal) >= 0)
+            {
+                // remove administered med entries
+                continue;
+            }
+            kept.Add(it);
+        }
+        nurseNextQueue = kept;
+    }
 
     EventSourceReader evt;
 
@@ -204,7 +268,7 @@ public class EventManager : MonoBehaviour
 
     // Start is called before the first frame update
     void Start()
-    {   
+    {
         LoadTranslations(lang);
         ReplaceTexts(lang);
 
@@ -231,6 +295,19 @@ public class EventManager : MonoBehaviour
         var activeSceneName = SceneManager.GetActiveScene().name.ToLowerInvariant();
         bool isDoctorScene = activeSceneName.Contains("doctor");
         bool isNurseScene  = activeSceneName.Contains("nurse");
+
+        // DEBUG LOG: Active scene info and Medication_List root quick check
+        try
+        {
+            var sceneNameRaw = SceneManager.GetActiveScene().name;
+            Debug.Log($"[EventManager] ActiveScene='{sceneNameRaw}', isNurse={isNurseScene}, isDoctor={isDoctorScene}");
+            if (isNurseScene)
+            {
+                var rootProbe = FindMedicationListRoot();
+                Debug.Log($"[EventManager] Medication_List root probe => {(rootProbe != null ? rootProbe.name : "null")}");
+            }
+        }
+        catch {}
 
         if (isDoctorScene)
         {
@@ -633,7 +710,7 @@ public class EventManager : MonoBehaviour
                     try { s = Regex.Replace(s, Regex.Escape(param), "", RegexOptions.IgnoreCase); } catch {}
                 }
                 // Remove parentheses segments containing /kg
-                s = Regex.Replace(s, @"\([^)]*?/\s*kg[^)]*\)", "", RegexOptions.IgnoreCase);
+                s = Regex.Replace(s, @"\([^)]*?/\s*kg[^)]*?\)", "", RegexOptions.IgnoreCase);
                 // Remove ' = ...' segments
                 s = Regex.Replace(s, @"\s*=\s*[^\n:]+", "", RegexOptions.IgnoreCase);
                 // Remove absolute energy pieces like ' at 200J' or '(200J)'
@@ -751,7 +828,7 @@ public class EventManager : MonoBehaviour
             string TidySpacing(string s)
             {
                 if (string.IsNullOrWhiteSpace(s)) return s;
-                s = Regex.Replace(s, @"(?<!\s)\(", " (" );
+                s = Regex.Replace(s, @"(?<!\s)\( ", " ( " );
                 s = Regex.Replace(s, @"\(\s+", "(");
                 s = Regex.Replace(s, @"\s+\)", ")");
                 s = Regex.Replace(s, @":\s*", ": ");
@@ -820,13 +897,55 @@ public class EventManager : MonoBehaviour
                 string final = "";
                 if (looksLikeShockEnergy)
                 {
-                    // Prefer returning ONLY the per-kg energy (e.g., "2 J/kg" or "4 J/kg").
+                    // Extract per-kg energy once (e.g., "2 J/kg")
                     string perKg = ExtractPerKgJ(param);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgJ(text);
 
+                    // Extract absolute J from param first, excluding J/kg; else from base text
+                    string finalJ = null;
+                    try
+                    {
+                        var rxAbsJ = new Regex(@"(\d+(?:\.[0-9]+)?)\s*J(?![\s\u00A0]*/[\s\u00A0]*kg)", RegexOptions.IgnoreCase);
+                        if (!string.IsNullOrWhiteSpace(param))
+                        {
+                            var ms = rxAbsJ.Matches(param);
+                            if (ms.Count > 0)
+                            {
+                                var s = ms[ms.Count - 1].Groups[1].Value;
+                                if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+                                    finalJ = v.ToString("0.##", CultureInfo.InvariantCulture) + " J";
+                            }
+                        }
+                        if (finalJ == null && !string.IsNullOrWhiteSpace(baseRaw))
+                        {
+                            var ms2 = rxAbsJ.Matches(baseRaw);
+                            if (ms2.Count > 0)
+                            {
+                                var s = ms2[ms2.Count - 1].Groups[1].Value;
+                                if (double.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var v))
+                                    finalJ = v.ToString("0.##", CultureInfo.InvariantCulture) + " J";
+                            }
+                        }
+                    }
+                    catch {}
+
+                    // If neither param nor base text has absolute J, keep previous simple per-kg rule
+                    if (!string.IsNullOrWhiteSpace(finalJ))
+                    {
+                        // Clean base text and compose: "<text> at <finalJ> (<perKg>)"
+                        text = CleanCalcFromText(text, param);
+                        // Remove trailing 'at' if left after stripping energy
+                        try { text = Regex.Replace(text ?? "", @"\s+at\s*$", "", RegexOptions.IgnoreCase).Trim(); } catch {}
+                        string combined = string.IsNullOrWhiteSpace(text) ? ("at " + finalJ) : ($"{text} at {finalJ}");
+                        if (!string.IsNullOrWhiteSpace(perKg)) combined += $" ({perKg})";
+                        combined = TidySpacing(combined);
+                        Debug.Log($"[EventManager] ComposeTextFinal shock: tag={tag} => '{combined}'");
+                        return combined;
+                    }
+
                     if (!string.IsNullOrWhiteSpace(perKg))
                     {
-                        // Apply uniform panel rule: show general instruction text and the selected per-kg energy
+                        // Legacy fallback: show only per-kg
                         text = CleanCalcFromText(text, param);
                         string combined = string.IsNullOrWhiteSpace(text) ? perKg : ($"{text}: {perKg}");
                         Debug.Log($"[EventManager] ComposeTextFinal shock: tag={tag} => '{combined}'");
@@ -877,6 +996,165 @@ public class EventManager : MonoBehaviour
                 return text ?? "";
             }
 
+            // CHANGE NOTE (2025-09-10, mj): Doctor 전용 텍스트 구성자 업데이트
+            // 규칙: 동사/콜론 제거, 결과값 우선 + 기준 계산식 1개 유지
+            // Shock: "defibrillation at 110J (2J/kg)" / Med: "Epinephrine 0.01mg/kg = 0.55 mg"
+            string ComposeTextForDoctor(SimpleJSON.JSONNode n)
+            {
+                if (n == null) return "";
+
+                string tag = null;
+                string baseRaw = "";
+                string param = null;
+
+                if (n.IsString)
+                {
+                    tag = n.Value;
+                    baseRaw = InstructionFinder.FindByTag(tag, lang);
+                }
+                else
+                {
+                    tag = n["hintType"]?.Value;
+                    baseRaw = string.IsNullOrWhiteSpace(tag) ? "" : InstructionFinder.FindByTag(tag, lang);
+                    param = n["hintParameter"]?.Value;
+                }
+
+                string text = NormalizeUnits(baseRaw);
+                if (!string.IsNullOrWhiteSpace(param)) param = NormalizeUnits(param);
+
+                // Doctor 토큰 간격 압축: per-kg·J 절대값에만 적용 (최종 mg/mL는 보존)
+                string TightenDoctorTokens(string s)
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return s;
+                    try
+                    {
+                        // X mg/kg, X mL/kg, X J/kg -> 공백 제거
+                        s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL)\s*/\s*kg", m =>
+                        {
+                            var num = m.Groups[1].Value;
+                            var unit = m.Groups[2].Value;
+                            unit = unit == "ml" ? "mL" : unit; // 안전치환
+                            return num + unit + "/kg";
+                        }, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*J\s*/\s*kg", "$1J/kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        // 절대 에너지 X J -> 공백 제거
+                        s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*J\b", "$1J", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    }
+                    catch {}
+                    return s.Trim();
+                }
+
+                // Shock/에너지 단계 감지
+                bool isJPerKg =
+                    System.Text.RegularExpressions.Regex.IsMatch(text ?? "", @"J\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
+                    System.Text.RegularExpressions.Regex.IsMatch(param ?? "", @"J\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                bool isShockWord =
+                    System.Text.RegularExpressions.Regex.IsMatch(text ?? "", @"defibrill|shock", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                if (isJPerKg || isShockWord)
+                {
+                    // per-kg 에너지 추출
+                    string perKgJ = ExtractPerKgJ(param);
+                    if (string.IsNullOrWhiteSpace(perKgJ)) perKgJ = ExtractPerKgJ(text);
+
+                    // 절대 J 추출: param 우선(마지막 값), 없으면 text(마지막 값)
+                    string finalJ = null;
+                    try
+                    {
+                        var rxAbsJ = new System.Text.RegularExpressions.Regex(@"(\d+(?:\.[0-9]+)?)\s*J(?![\s\u00A0]*/[\s\u00A0]*kg)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (!string.IsNullOrWhiteSpace(param))
+                        {
+                            var jsParam = new System.Collections.Generic.List<double>();
+                            foreach (System.Text.RegularExpressions.Match m in rxAbsJ.Matches(param))
+                            {
+                                if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) jsParam.Add(v);
+                            }
+                            if (jsParam.Count > 0)
+                            {
+                                var v = jsParam[jsParam.Count - 1];
+                                finalJ = v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " J";
+                            }
+                        }
+                        if (finalJ == null && !string.IsNullOrWhiteSpace(text))
+                        {
+                            var jsText = new System.Collections.Generic.List<double>();
+                            foreach (System.Text.RegularExpressions.Match m in rxAbsJ.Matches(text))
+                            {
+                                if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var v)) jsText.Add(v);
+                            }
+                            if (jsText.Count > 0)
+                            {
+                                var v = jsText[jsText.Count - 1];
+                                finalJ = v.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " J";
+                            }
+                        }
+                    }
+                    catch {}
+
+                    // per-kg만 있고 절대값 없으며 체중 있으면 계산
+                    if (string.IsNullOrWhiteSpace(finalJ) && !string.IsNullOrWhiteSpace(perKgJ) && bodyWeightKg > 0)
+                    {
+                        var m = System.Text.RegularExpressions.Regex.Match(perKgJ, @"(\d+(?:\.[0-9]+)?)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (m.Success && double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var pv))
+                        {
+                            double res = pv * bodyWeightKg;
+                            finalJ = res.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + " J";
+                        }
+                    }
+
+                    // 기본 문구 정리: 동사/콜론/계산 파트 제거
+                    string baseName = text;
+                    baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"^\s*(order|prepare|administer|give|for)\b\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    baseName = CleanCalcFromText(baseName, param);
+                    baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"\bfor\b\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    // Remove trailing 'at' if left after stripping energy
+                    try { baseName = System.Text.RegularExpressions.Regex.Replace(baseName ?? "", @"\s+at\s*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(); } catch {}
+                    baseName = baseName.Replace(":", " ").Trim();
+                    if (string.IsNullOrWhiteSpace(baseName)) baseName = "defibrillation"; // 폴백
+
+                    // 최종 조합: "<base> at <절대J> (<perKgJ>)"
+                    string composed = baseName;
+                    if (!string.IsNullOrWhiteSpace(finalJ)) composed += " at " + finalJ;
+                    if (!string.IsNullOrWhiteSpace(perKgJ)) composed += " (" + perKgJ + ")";
+                    composed = TidySpacing(composed);
+                    return TightenDoctorTokens(composed);
+                }
+                else
+                {
+                    // 약물 경로: mg/kg 선호, 없다면 mL/kg; 결과값 있으면 '= 값'
+                    string medName = text;
+                    medName = System.Text.RegularExpressions.Regex.Replace(medName, @"^\s*(order|prepare|administer|give)\b\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                    medName = CleanCalcFromText(medName, param);
+                    medName = medName.Replace(":", " ").Trim();
+                    // 문장 시작 대문자화
+                    if (!string.IsNullOrEmpty(medName))
+                    {
+                        try { medName = char.ToUpperInvariant(medName[0]) + (medName.Length > 1 ? medName.Substring(1) : ""); } catch {}
+                    }
+
+                    // per-kg 선택 (질량 우선 → 용적)
+                    string perKg = ExtractPerKgMass(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgMass(text);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(text);
+
+                    // 최종 용량
+                    string final = ExtractFinalValue(param);
+                    if (string.IsNullOrWhiteSpace(final) && bodyWeightKg > 0)
+                    {
+                        string source = !string.IsNullOrWhiteSpace(param) ? param : baseRaw;
+                        final = TryComputePerKgFinal(source, bodyWeightKg);
+                    }
+
+                    string composed = medName;
+                    if (!string.IsNullOrWhiteSpace(perKg)) composed += " " + perKg;
+                    if (!string.IsNullOrWhiteSpace(final)) composed += " = " + final;
+
+                    composed = TidySpacing(composed);
+                    return TightenDoctorTokens(composed);
+                }
+            }
+
             // Canonicalize content for dedup (keep digits, remove bullets, collapse whitespace, lower-case)
             string Canonicalize(string s)
             {
@@ -915,8 +1193,8 @@ public class EventManager : MonoBehaviour
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["primaryHints"];
                 Debug.Log(instrunctions);
 
-                for(int i = 0; i < instrunctions.Count; i++)
-                {   
+                for(int i = 0; i < instrunctions.Count; i++) 
+                {
                     /* Old Code below
                     string instruction = instrunctions[i];
                     if (!String.IsNullOrWhiteSpace(instruction)) {
@@ -955,10 +1233,10 @@ public class EventManager : MonoBehaviour
             if (obj["cprNurseHintsModel"] == null) {
                 
             } else if (useServerHintsForNurseNext) {
-                // CHANGE NOTE (2025-09-02, mj): Guarded by useServerHintsForNurseNext to prevent duplication with medication() UI.
+                // CHANGE NOTE (2025-09-09, mj): Nurse_Next는 힌트/오버플로우 도착 순서 큐에 누적합니다.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["nextStepHints"];
 
-                // Next Steps: General text + final value, de-dup with current (by tag+text), cap to MAX_NEXT_STEPS
+                // 현재 Current(Primary)와의 중복 방지용 집합 구성 // build current set for dedup
                 var curSet = new System.Collections.Generic.HashSet<string>();
                 var curNodesN = obj["cprNurseHintsModel"]["primaryHints"];
                 if (curNodesN != null)
@@ -971,16 +1249,11 @@ public class EventManager : MonoBehaviour
                 }
 
                 var seen = new System.Collections.Generic.HashSet<string>();
-                int filled = 0;
-
-                // initialize
-                if (Nurse_Next_1 != null) Nurse_Next_1.text = "";
-                if (Nurse_Next_2 != null) Nurse_Next_2.text = "";
-                if (Nurse_Next_3 != null) Nurse_Next_3.text = "";
+                var hintVals = new List<string>();
 
                 for (int i = 0; i < instrunctions.Count; i++)
                 {
-                    if (filled >= MAX_NEXT_STEPS) break;
+                    if (hintVals.Count >= MAX_NEXT_STEPS) break;
                     string val = ComposeTextFinal(instrunctions[i]);
                     val = FormatAdvancedPreparationNurse(val);
                     val = WrapIfLong(val);
@@ -990,25 +1263,11 @@ public class EventManager : MonoBehaviour
                     if (dedupAgainstCurrent && curSet.Contains(key)) continue;
                     if (dedupNextSteps && !seen.Add(key)) continue;
 
-                    if (filled == 0 && Nurse_Next_1 != null)
-                    {
-                        Nurse_Next_1.text = val;
-                        filled++;
-                        continue;
-                    }
-                    if (filled == 1 && Nurse_Next_2 != null)
-                    {
-                        Nurse_Next_2.text = val;
-                        filled++;
-                        continue;
-                    }
-                    if (filled == 2 && Nurse_Next_3 != null) 
-                    {
-                        Nurse_Next_3.text = val;
-                        filled++;
-                        continue;
-                    }
+                    hintVals.Add(val);
                 }
+                lastHintNext = hintVals; // 최신 힌트 기억 // remember newest hints
+                for (int h = 0; h < hintVals.Count; h++) NurseNextAppendIfNew(hintVals[h]); // 큐에 추가 // append to queue
+                NurseNextRender(); // 즉시 렌더 // render now
             }
 
             if (obj["cprLeaderHintsModel"] == null) {
@@ -1016,18 +1275,16 @@ public class EventManager : MonoBehaviour
             } else {
                 SimpleJSON.JSONNode instrunctions = obj["cprLeaderHintsModel"]["primaryHints"];
 
-                for(int i = 0; i < instrunctions.Count; i++)
-                {   
+                for(int i = 0; i < instrunctions.Count; i++) 
+                {
                     /*Old code below
                     string instruction = instrunctions[i];
                     if (!String.IsNullOrWhiteSpace(instruction)) {
-                        instruction = InstructionFinder.FindByTag(instruction, lang);                    
+                        instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
                     */
-                    // Compose: General text + final value (if any)
-                    // Doctor: DO NOT split medication name and dose to two lines (nurse-only).
-                    // If the line is too long, we only wrap after ':' or before '(' for readability.
-                    string instruction = ComposeTextFinal(instrunctions[i]);
+                    // Compose: For Doctor, include simple calc without colon (e.g., "Amiodarone 5 mg/kg = 125 mg")
+                    string instruction = ComposeTextForDoctor(instrunctions[i]);
                     instruction = WrapIfLong(instruction);
 
                     if (i == 0) {
@@ -1083,12 +1340,12 @@ public class EventManager : MonoBehaviour
                 if (Doc_Next_2 != null) Doc_Next_2.text = "";
                 if (Doc_Next_3 != null) Doc_Next_3.text = "";
 
-                for(int i = 0; i < instrunctions.Count; i++)
-                {   
+                for(int i = 0; i < instrunctions.Count; i++) 
+                {
                     if (filledDoc >= MAX_NEXT_STEPS) break; 
 
-                    // Doctor: Only wrap long lines; do not move dose to a new line (nurse-only behavior).
-                    string val = ComposeTextFinal(instrunctions[i]);
+                    // Doctor: include simple calc and no colon; still wrap long lines
+                    string val = ComposeTextForDoctor(instrunctions[i]);
                     val = WrapIfLong(val);
                     if (string.IsNullOrWhiteSpace(val)) continue;
 
@@ -1302,7 +1559,7 @@ public class EventManager : MonoBehaviour
                 timer2.text = "-" + min + ":" + sec;
 
                 for (int i = 0; i < notiEpiArr.Count; i++) {
-                    GameObject temp = (GameObject)notiEpiArr[i];
+                    GameObject temp = (GameObject) notiEpiArr[i];
                     TextMeshProUGUI txt = temp.transform.GetChild(0).transform.GetChild(0).transform.GetChild(0).gameObject.GetComponent<TextMeshProUGUI>();
                     txt.text = "-" + min + ":" + sec;
                 }
@@ -1345,7 +1602,7 @@ public class EventManager : MonoBehaviour
         bool onOff = ((int) (Time.time * 10)) % 6 == 0 || ((int) (Time.time * 10)) % 6 == 1 || ((int) (Time.time * 10)) % 6 == 2;
 
         for (int i = 0; i < notiArr.Count; i++) {
-            GameObject temp = (GameObject)notiArr[i];
+            GameObject temp = (GameObject) notiArr[i];
             if (onOff) {
                 temp.transform.GetChild(0).transform.GetChild(0).gameObject.GetComponent<CanvasElementRoundedRect>().material = mat[7];
             } else {
@@ -1354,7 +1611,7 @@ public class EventManager : MonoBehaviour
         }
 
         for (int i = 0; i < notiCprArr.Count; i++) {
-            GameObject temp = (GameObject)notiCprArr[i];
+            GameObject temp = (GameObject) notiCprArr[i];
             if (onOff) {
                 temp.transform.GetChild(0).transform.GetChild(0).gameObject.GetComponent<CanvasElementRoundedRect>().material = mat[5];
             } else {
@@ -1363,7 +1620,7 @@ public class EventManager : MonoBehaviour
         }
 
         for (int i = 0; i < notiEpiArr.Count; i++) {
-            GameObject temp = (GameObject)notiEpiArr[i];
+            GameObject temp = (GameObject) notiEpiArr[i];
             if (onOff) {
                 temp.transform.GetChild(0).transform.GetChild(0).gameObject.GetComponent<CanvasElementRoundedRect>().material = mat[5];
             } else {
@@ -1461,7 +1718,7 @@ public class EventManager : MonoBehaviour
     }
 
     public void initializeSessions()
-    { 
+    {
         Debug.Log(sessionArr.Count);
         //Initialize session list
         int sessionCount = sessionArr.Count;
@@ -1478,7 +1735,7 @@ public class EventManager : MonoBehaviour
     }
 
     public void getSessions()
-    { 
+    {
         //Initialize session list
         initializeSessions();
 
@@ -1685,8 +1942,15 @@ public class EventManager : MonoBehaviour
                                     bool callUpdateNoti = meds.Count > 1; // avoid duplicate noti with the single-med branch
                                     m_queueAction.Enqueue(() => {
                                         if (isAmio) HighlightAmiodaroneOrder(false);
-                                        if (isEpi) HighlightEpinephrineOrder(false);
+                                        if (isEpi) {
+                                            HighlightEpinephrineOrder(false);
+                                            // OVERDUE(Epi) 알림 즉시 제거 // dismiss Epi overdue notification immediately
+                                            DismissEpiOverdueNoti();
+                                        }
                                         ConfirmFlashOrderDisplay(medName);
+                                        // CHANGE NOTE (2025-09-09, mj): 투약 완료 시 Nurse_Next에서도 즉시 제거
+                                        NurseNextRemoveByMedName(medName);
+                                        NurseNextRender();
                                         if (callUpdateNoti) UpdateNoti(medName, doseLabel, 0);
                                     });
                                 }
@@ -1837,27 +2101,14 @@ public class EventManager : MonoBehaviour
                             foreach(SimpleJSON.JSONNode dose in med["doses"]) {
                                 if (dose["doseInstances"] != null && dose["doseInstances"].Count > 0) {
                                     foreach(SimpleJSON.JSONNode doseInstance in dose["doseInstances"]) {
-                                        if (doseInstance["status"] == "PREPARING" && doseInstance["autoPrescribed"] == false) {
-                                            // if (Nurse_Cur_1.text != "" && Nurse_Cur_2.text != "" && Nurse_Cur_3.text != "") {
-                                            //     Nurse_Cur_1.text = Nurse_Cur_2.text;
-                                            //     Nurse_Cur_2.text = Nurse_Cur_3.text;
-                                            //     Nurse_Cur_3.text = "";
-                                            // }
-                                            if (Nurse_Cur_1 != null && Nurse_Cur_1.text == "") {
+                                        if (doseInstance["status"] == "PREPARING") {
+                                            // 간호사 화면에 약물 주문 표시
+                                            if (Nurse_Cur_1.text == "") {
                                                 Nurse_Cur_1.text = id;
-                                                if (String.IsNullOrWhiteSpace(Nurse_Cur_1.text.Replace("•", ""))) {
-                                                    Nurse_Cur_1.text = "";
-                                                }
-                                            } else if (Nurse_Cur_2 != null && Nurse_Cur_2.text == "") {
+                                            } else if (Nurse_Cur_2.text == "") {
                                                 Nurse_Cur_2.text = id;
-                                                if (String.IsNullOrWhiteSpace(Nurse_Cur_2.text.Replace("•", ""))) {
-                                                    Nurse_Cur_2.text = "";
-                                                }
-                                            } else if (Nurse_Cur_3 != null && Nurse_Cur_3.text == "") {
+                                            } else if (Nurse_Cur_3.text == "") {
                                                 Nurse_Cur_3.text = id;
-                                                if (String.IsNullOrWhiteSpace(Nurse_Cur_3.text.Replace("•", ""))) {
-                                                    Nurse_Cur_3.text = "";
-                                                }
                                             }
                                         }
                                     }
@@ -1940,8 +2191,7 @@ public class EventManager : MonoBehaviour
                         // 8.4% Sodium Bicarb
                         // Insulin
                         // Glucose
-
-                        if (medID == 1) {
+if (medID == 1) {
                             if (AmiCount == null && GameObject.FindWithTag("AmiCount") != null) {
                                 AmiCount = GameObject.FindWithTag("AmiCount").GetComponent<TextMeshProUGUI>();
                             }
@@ -1949,7 +2199,7 @@ public class EventManager : MonoBehaviour
                                 AmiCount.text = val.ToString();
                             }
 
-                            if (preVal > 0 || val > 0) {
+                            if (preVal > 0) {
                                 resCount++;
                                 if (Nurse_Cur_1 != null && iii == 0) { Nurse_Cur_1.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
                                 else if (Nurse_Cur_2 != null && iii == 1) { Nurse_Cur_2.text = FindMultiLang("Amiodarone") + " 125mg"; iii++; }
@@ -2001,7 +2251,7 @@ public class EventManager : MonoBehaviour
                             if (EpiCount != null) {
                                 EpiCount.text = val.ToString();
                             }
-                            if (preVal > 0 || val > 0) {
+                            if (preVal > 0) {
                                 resCount++;
                                 if (Nurse_Cur_1 != null && iii == 0) {
                                     Nurse_Cur_1.text = FindMultiLang("Epinephrine") + " 0.25 mg";
@@ -2431,24 +2681,156 @@ public class EventManager : MonoBehaviour
                     }
                 }
 
-                if (resCount > 0) {
-                    if (resTabOrderIcon != null) resTabOrderIcon.enabled = true;
-                } else {
-                    if (resTabOrderIcon != null) resTabOrderIcon.enabled = false;
+                // CHANGE NOTE (2025-09-09, mj): 모든 약물에 하이라이트 적용 // Apply highlight to all medications
+                // 왜(Why): Hyperkalemia 등 특정 카테고리에서 오더 후 하이라이트 반영 누락 문제 해결
+                // 무엇(What): 모든 약물(ID 1-19)에 대해 ORDERED && !READY 상태시 하이라이트 적용
+                // 동작(Behaviour): PREPARING/AUTO_PREPARING 상태이면서 READY가 아닌 모든 약물 하이라이트
+                // 흐름(Flow): medication() → 각 약물 상태 확인 → 조건 충족시 하이라이트
+                // 연결(Connections): HighlightMedicationOrder() 새로 추가, _uiNameByMedId 사용
+                // 학습점(Learn Points): 기존 Amio/Epi 전용 로직을 일반화하여 모든 약물 지원
+                // 위험/영향/롤백(Risk/Impact/Rollback): 
+                // - 위험도: 낮음  
+                // - 영향: 간호사 화면에서 모든 약물 오더 시각적 피드백 개선
+                // - 롤백: 이 블록 제거하고 기존 주석 복원
+                // 
+                // TL;DR: 모든 약물 오더시 하이라이트 적용으로 시각적 피드백 개선
+                // Enables highlighting for all medication orders, not just Amio/Epi.
+                for (int hi = 0; hi < storedMedJson.Count; hi++) {
+                    int medIdForHighlight = storedMedJson[hi]["id"];
+                    // Amio/Epi는 이미 위에서 처리됨 // Skip Amio/Epi as they're handled above
+                    if (medIdForHighlight == 1 || medIdForHighlight == 5) continue;
+                    
+                    SimpleJSON.JSONNode medNodeH = storedMedJson[hi];
+                    bool hasReadyH = MedHasStatus(medNodeH, "READY");
+                    bool isOrderedH = MedHasAnyPreparing(medNodeH);
+                    bool highlightH = isOrderedH && !hasReadyH;
+                    
+
+                    HighlightMedicationOrderById(medIdForHighlight, highlightH);
+                    if (!highlightH) {
+                        SetOrderNormalForId(medIdForHighlight);
+                    }
                 }
-                
-                if (intCount > 0) {
-                    if (intTabOrderIcon != null) intTabOrderIcon.enabled = true;
-                } else {
-                    if (intTabOrderIcon != null) intTabOrderIcon.enabled = false;
+
+                // CHANGE NOTE (2025-09-09, mj): Nurse Current 3행 규칙 및 Next 오버플로우 구현
+                // 왜(Why): 테스트에서 Hyper-K 등 기타 약물이 Current Orders에 표시되지 않고 하이라이트 누락
+                // 무엇(What): Nurse_Cur_1/2는 Amio/Epi 고정, Nurse_Cur_3에 첫 번째 기타 ORDERED 약물 배치
+                //           초과 기타 약물은 Nurse_Next_1→2→3로 순차 오버플로우
+                // 동작(Behaviour): PREPARING/AUTO_PREPARING이지만 READY 아닌 기타 약물만 대상
+                //                 Cur_3 약물이 READY되면 Next_1이 자동 승격
+                // 흐름(Flow): medication() → 기타 약물 스캔 → 첫 번째는 Cur_3 → 나머지는 Next 순차 배치
+                // 연결(Connections): MedHasStatus(), MedHasAnyPreparing()로 상태 판별
+                //                    FindMultiLang()로 다국어 약물명 처리
+                // 학습점(Learn Points): 서버 힌트와 medication() 경로가 충돌하지 않도록 useServerHintsForNurseCurrent=false 유지
+                //                       3행 규칙은 클라이언트에서 로컬 구현하여 서버 변경 불요
+                // 위험/영향/롤백(Risk/Impact/Rollback): 
+                // - 위험도: 낮음
+                // - 영향: Nurse 씬에서만 Current/Next 표시 변경, 다른 씬 영향 없음
+                // - 롤백: 이 블록 전체 제거하면 이전 동작으로 복원
+                // 
+                // TL;DR: Nurse_Cur 3행(Amio/Epi/기타) 규칙 구현, 초과는 Next로 오버플로우
+                // Implements 3-row rule for Nurse Current Orders, overflow to Next.
+                try
+                {
+                    if (IsNurseSceneActive())
+                    {
+                        var orderedOthers = new List<string>();
+                        var newlyOrdered = new List<string>();
+                        // Collect non-Amio/Epi ordered meds
+                        for (int oi = 0; oi < storedMedJson.Count; oi++)
+                        {
+                            int medIdNum2 = storedMedJson[oi]["id"];
+                            if (medIdNum2 == 1 || medIdNum2 == 5) continue; // Skip Amio/Epi
+                            var medNode = storedMedJson[oi];
+                            bool hasReady2 = MedHasStatus(medNode, "READY");
+                            bool isOrdered2 = MedHasAnyPreparing(medNode);
+                            if (isOrdered2 && !hasReady2)
+                            {
+                                string medIdStr2 = medNode["id"];
+                                var medinfo2 = MedicationFinder.FindByTag(medIdStr2, lang);
+                                string medName2 = (medinfo2 != null && medinfo2.Length > 0) ? medinfo2[0] : medIdStr2;
+                                medName2 = FindMultiLang(medName2);
+                                orderedOthers.Add(medName2);
+                                bool wasOrderedBefore = false;
+                                try { wasOrderedBefore = prevOrderedByMedId.ContainsKey(medIdNum2) && prevOrderedByMedId[medIdNum2]; } catch {}
+                                if (!wasOrderedBefore)
+                                {
+                                    newlyOrdered.Add(medName2); // newly ordered this frame
+                                }
+                            }
+                        }
+                        // update snapshot
+                        for (int oi = 0; oi < storedMedJson.Count; oi++)
+                        {
+                            int mid = storedMedJson[oi]["id"];
+                            if (mid == 1 || mid == 5) continue;
+                            bool hasReadyX = MedHasStatus(storedMedJson[oi], "READY");
+                            bool isOrderedX = MedHasAnyPreparing(storedMedJson[oi]);
+                            prevOrderedByMedId[mid] = isOrderedX && !hasReadyX;
+                        }
+
+                        // update queue with all ordered others
+                        // append only newly ordered to preserve order
+                        for (int k = 0; k < newlyOrdered.Count; k++)
+                        {
+                            NurseNextAppendIfNew(newlyOrdered[k]);
+                        }
+                        var expectedKeys = new System.Collections.Generic.HashSet<string>();
+                        for (int k = 0; k < orderedOthers.Count; k++)
+                        {
+                            expectedKeys.Add(CanonicalizeSimple(orderedOthers[k]));
+                        }
+                        // optionally retain hints
+                        for (int h = 0; h < lastHintNext.Count; h++)
+                        {
+                            expectedKeys.Add(CanonicalizeSimple(lastHintNext[h]));
+                        }
+                        NurseNextPruneTo(expectedKeys);
+
+                        // set Cur_3 from queue head
+                        if (Nurse_Cur_3 != null)
+                        {
+                            string head = (nurseNextQueue.Count > 0) ? nurseNextQueue[0] : "";
+                            Nurse_Cur_3.text = head;
+                        }
+
+                        // render NEXT excluding head
+                        NurseNextRender();
+                    }
                 }
-                
-                if (hypCount > 0) {
-                    if (hypTabOrderIcon != null) hypTabOrderIcon.enabled = true;
-                } else {
-                    if (hypTabOrderIcon != null) hypTabOrderIcon.enabled = false;
+                catch (Exception ex)
+                {
+                    Debug.LogWarning("[EventManager] Nurse_Cur_3/Next overflow processing failed: " + ex);
                 }
             }
+            // CHANGE NOTE (2025-09-10, mj): toggle menu clock icon (ON when highlight exists)
+            // rule: if there is any medication with isOrdered && !hasReady(= highlight), turn on the corresponding menu icon
+            // menu mapping: Res(1,5) / Interv(7,11,13,14,16,19) / HyperK(3,4,8,9,17,18)
+            try
+            {
+                bool resHasHL = false, intHasHL = false, hypHasHL = false;
+                var arr = (medications != null) ? medications["medicationModels"] : null;
+                if (arr != null)
+                {
+                    foreach (SimpleJSON.JSONNode medNodeX in arr)
+                    {
+                        int mid = medNodeX["id"];
+                        bool hasReadyX = MedHasStatus(medNodeX, "READY");
+                        bool isOrderedX = MedHasAnyPreparing(medNodeX);
+                        bool highlightX = isOrderedX && !hasReadyX;
+                        if (!highlightX) continue;
+
+                        if (mid == 1 || mid == 5) resHasHL = true; // Resuscitation group
+                        else if (mid == 7 || mid == 11 || mid == 13 || mid == 14 || mid == 16 || mid == 19) intHasHL = true; // Interventions group
+                        else if (mid == 3 || mid == 4 || mid == 8 || mid == 9 || mid == 17 || mid == 18) hypHasHL = true; // Hyper-K group
+                    }
+                }
+
+                if (resTabOrderIcon != null) resTabOrderIcon.enabled = resHasHL;
+                if (intTabOrderIcon != null) intTabOrderIcon.enabled = intHasHL;
+                if (hypTabOrderIcon != null) hypTabOrderIcon.enabled = hypHasHL;
+            }
+            catch {}
         } catch (Exception e) {
             Debug.Log(e);
         }
@@ -2579,7 +2961,7 @@ public class EventManager : MonoBehaviour
     }
 
     public void EndGazeHover(GameObject gameObject)
-    { 
+    {
         DateTime currentTime = DateTime.UtcNow;
         long unixTime = ((DateTimeOffset)currentTime).ToUnixTimeSeconds();
         Debug.Log($"Ended, {gameObject.name}, {Time.time - timeActivated}, {unixTime}, {DateTime.Now.ToLocalTime()}, {CurrentSession.text}");
@@ -2587,7 +2969,7 @@ public class EventManager : MonoBehaviour
     }
 
     // public void ResetCenter()
-    // { 
+    // {
     //     Vector3 offset = head.position - origin.position;
     //     offset.y = 0;
     //     origin.position = target.position - offset;
@@ -2644,7 +3026,7 @@ public class EventManager : MonoBehaviour
     }
 
     public void togglePenMode()
-    { 
+    {
         if (boolTogglePen == false) {
             StartCoroutine(togglePen1Sec());
             Debug.Log("Here");
@@ -2715,7 +3097,7 @@ public class EventManager : MonoBehaviour
     }
 
     public void untogglePenMode()
-    { 
+    {
         if (boolTogglePen == false) {
             StartCoroutine(togglePen1Sec());
             Debug.Log("There");
@@ -2845,6 +3227,29 @@ public class EventManager : MonoBehaviour
         Debug.Log("Finished Coroutine at timestamp : " + Time.time);
     }
 
+    // CHANGE NOTE (2025-09-10, mj): Epinephrine OVERDUE noti dismiss immediately
+    void DismissEpiOverdueNoti()
+    {
+        try
+        {
+            for (int i = notiEpiArr.Count - 1; i >= 0; i--)
+            {
+                GameObject go = (GameObject)notiEpiArr[i];
+                notiEpiArr.RemoveAt(i);
+                if (go != null)
+                {
+                    go.SetActive(false);
+                    Destroy(go, 0.0f);
+                }
+            }
+            // reset epi flashing state
+            epi_5sec = false;
+            epi_5sec_coroutine = false;
+        }
+        catch {}
+    }
+
+
     IEnumerator togglePen1Sec()
     {
         boolTogglePen = true;
@@ -2861,7 +3266,7 @@ public class EventManager : MonoBehaviour
     }
 
     // CHANGE NOTE (2025-09-04, mj)
-    // A green confirm flash conflicts with the visibility model for READY/ORDERED and per requirement I keep only the yellow PREPARING highlight,
+    // Only PREPARING highlight is shown; confirm flash removed
     void ConfirmFlashOrderDisplay(string medDisplayName, float seconds = 1.6f)
     {
         // intentionally left blank (no-op)
@@ -2882,7 +3287,7 @@ public class EventManager : MonoBehaviour
     }
 
     // CHANGE NOTE (2025-09-04, mj)
-    // The yellow highlight was not sufficiently visible. We now apply a richer amber color and a black outline to improve readability.
+    // The yellow highlight was not sufficiently visible. Apply a richer amber color and a black outline to improve readability.
 
     void ApplyOrderHighlight(TMPro.TextMeshProUGUI t, string key, bool on)
     {
@@ -2970,111 +3375,487 @@ public class EventManager : MonoBehaviour
     class OriginalTMPState { public Color color; public TMPro.FontStyles style; }
     Dictionary<int, OriginalTMPState> _origMedListTMP = new Dictionary<int, OriginalTMPState>();
 
+    // UI label overrides by medication id for name-only matching (per HoloLens display)
+    Dictionary<int, string> _uiNameByMedId = new Dictionary<int, string>
+    {
+        { 1, "Amiodarone" },
+        { 2, "Atropine" },
+        { 3, "10% Calcium Chloride" },
+        { 4, "10% Calcium Gluconate" },
+        { 5, "Epinephrine" },
+        { 6, "Etomidate" },
+        { 7, "Fentanyl" },
+        { 8, "Glucose D10W (starting dose)" },
+        { 9, "Insulin (starting dose)" },
+        { 10, "KCI" },
+        { 11, "Ketamine" },
+        { 12, "Lidocaine" },
+        { 13, "Midazolam" },
+        { 14, "Morphine" },
+        { 15, "NS" },
+        { 16, "Rocuronium" },
+        { 17, "Salbutamol (Albuterol)" },
+        { 18, "8.4% Sodium Bicarb" },
+        { 19, "Succinylcholine" },
+    };
+
+    // Row index by medication id
+    System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<Transform>> _rowsByMedId =
+        new System.Collections.Generic.Dictionary<int, System.Collections.Generic.List<Transform>>();
+
+
+    // Per-medication policy: whether this medication requires Name+Dose (AND) matching
+    System.Collections.Generic.HashSet<int> _requireDoseMedIds = new System.Collections.Generic.HashSet<int> { 4, 18 };
+
+    // Cache for Medication_List root to avoid repeated scanning
+    Transform _medListRootCache = null;
+
     Transform FindMedicationListRoot()
     {
+        if (_medListRootCache != null) return _medListRootCache;
         GameObject go = GameObject.Find("Medication_List (1)");
         if (go == null) go = GameObject.Find("Medication_List");
         if (go == null) go = GameObject.Find("Medication_List 3");
-        return go != null ? go.transform : null;
+        if (go != null) { Debug.Log($"[EventManager] Medication_List root (by name): {go.name}"); _medListRootCache = go.transform; return _medListRootCache; }
+
+        // Heuristic scan: find a container that contains standard headers like Drug/Dose/Volume/Strength/Instructions
+        Transform best = null;
+        int bestScore = 0;
+        var all = GameObject.FindObjectsOfType<Transform>(true);
+        foreach (var t in all)
+        {
+            if (t == null) continue;
+            var tmps = t.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            if (tmps == null || tmps.Length == 0) continue;
+            int score = 0;
+            for (int i = 0; i < tmps.Length; i++)
+            {
+                var tmp = tmps[i];
+                if (tmp == null) continue;
+                var s = tmp.text;
+                if (string.IsNullOrEmpty(s)) continue;
+                s = s.Trim();
+                if (s.Equals("Drug", StringComparison.OrdinalIgnoreCase)) score++;
+                else if (s.Equals("Strength", StringComparison.OrdinalIgnoreCase)) score++;
+                else if (s.Equals("Dose", StringComparison.OrdinalIgnoreCase)) score++;
+                else if (s.Equals("Volume", StringComparison.OrdinalIgnoreCase)) score++;
+                else if (s.Equals("Instructions", StringComparison.OrdinalIgnoreCase) || s.Equals("lnstructions", StringComparison.OrdinalIgnoreCase)) score++;
+            }
+            if (score > bestScore)
+            {
+                bestScore = score;
+                best = t;
+            }
+        }
+        if (bestScore >= 3) { Debug.Log($"[EventManager] Medication_List root (heuristic): {best.name}, score={bestScore}"); _medListRootCache = best; return _medListRootCache; }
+        return null;
+    }
+
+    bool IsNurseSceneActive()
+    {
+        try
+        {
+            var name = SceneManager.GetActiveScene().name;
+            return !string.IsNullOrEmpty(name) &&
+                   (name.IndexOf("nurse", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    string.Equals(name, "Nurse_scene", StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
+    }
+
+    // Build medId→rows index by scanning Medication_List
+    void BuildMedicationRowIdIndex()
+    {
+        _rowsByMedId.Clear();
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        string Canon(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.ToLowerInvariant();
+            try { s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9]", ""); } catch {}
+            return s.Trim();
+        }
+
+        // Build canonical key per medId (multilang only)
+        var medKeyById = new System.Collections.Generic.Dictionary<int, string>();
+        foreach (var kv in _uiNameByMedId)
+        {
+            try
+            {
+                medKeyById[kv.Key] = Canon(FindMultiLang(kv.Value));
+            }
+            catch
+            {
+                medKeyById[kv.Key] = Canon(kv.Value);
+            }
+        }
+
+        var groups = root.GetComponentsInChildren<Transform>(true);
+        for (int gi = 0; gi < groups.Length; gi++)
+        {
+            var g = groups[gi];
+            if (g == null || g == root) continue;
+            var tmps = g.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            int cnt = tmps != null ? tmps.Length : 0;
+            if (cnt == 0) continue;
+            if (cnt > 80) continue;
+
+            var sb = new System.Text.StringBuilder(256);
+            for (int t = 0; t < tmps.Length; t++)
+            {
+                var gt = tmps[t];
+                if (gt == null || string.IsNullOrEmpty(gt.text)) continue;
+                sb.Append(Canon(gt.text));
+            }
+            string canon = sb.ToString();
+            if (string.IsNullOrEmpty(canon)) continue;
+
+            foreach (var kv in medKeyById)
+            {
+                string key = kv.Value;
+                if (string.IsNullOrEmpty(key)) continue;
+                if (canon.IndexOf(key, System.StringComparison.Ordinal) >= 0)
+                {
+                    if (!_rowsByMedId.TryGetValue(kv.Key, out var list) || list == null)
+                    {
+                        list = new System.Collections.Generic.List<Transform>();
+                        _rowsByMedId[kv.Key] = list;
+                    }
+                    if (!list.Contains(g)) list.Add(g);
+                    try
+                    {
+                        var mr = g.gameObject.GetComponent<MedicationRow>();
+                        if (mr == null) mr = g.gameObject.AddComponent<MedicationRow>();
+                        mr.medId = kv.Key;
+                    }
+                    catch {}
+                    break; // one med per row
+                }
+            }
+        }
+    }
+
+
+    // Highlight all texts in the row(s) by medId
+    void ApplyMedicationListRowHighlightById(int medId, bool on)
+    {
+        if (medId <= 0) return;
+        
+        if (!IsNurseSceneActive()) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        if (!_rowsByMedId.TryGetValue(medId, out var rows) || rows == null || rows.Count == 0)
+        {
+            BuildMedicationRowIdIndex();
+            _rowsByMedId.TryGetValue(medId, out rows);
+        }
+        if (rows == null || rows.Count == 0)
+        {
+            // Fallback to name-based
+            if (_uiNameByMedId.TryGetValue(medId, out var name))
+            {
+                try { ApplyMedicationListRowHighlight(FindMultiLang(name), on); } catch {}
+            }
+            return;
+        }
+        
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        for (int r = 0; r < rows.Count; r++)
+        {
+            var tmps = rows[r].GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            for (int j = 0; j < tmps.Length; j++)
+            {
+                var t = tmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
+            }
+        }
+    }
+
+
+    // Helper to get GameObject path
+    string GetGameObjectPath(GameObject obj)
+    {
+        string path = obj.name;
+        Transform t = obj.transform;
+        while (t.parent != null)
+        {
+            t = t.parent;
+            path = t.name + "/" + path;
+        }
+        return path;
+    }
+
+    // Reset highlight by medId
+    void SetOrderNormalForId(int medId)
+    {
+        ApplyMedicationListRowHighlightById(medId, false);
     }
 
     void ApplyMedicationListRowHighlight(string medKey, bool on)
     {
         if (string.IsNullOrEmpty(medKey)) return;
+        if (!IsNurseSceneActive()) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return; // highlight is only allowed inside Medication_List
+
+        // String normalization: lowercase + remove non-alphanumeric (keep numbers, ignore line breaks/spaces)
+        string Canon(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.ToLowerInvariant();
+            try { s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9]", ""); } catch {}
+            return s.Trim();
+        }
+
+        string key = Canon(medKey);
+        if (string.IsNullOrEmpty(key)) return;
+
+        // Leaf-first approach: find leaf containing key, then traverse up to apply to row(s)
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+        var tmps = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+
+        for (int i = 0; i < tmps.Length; i++)
+        {
+            var leaf = tmps[i];
+            if (leaf == null || string.IsNullOrEmpty(leaf.text)) continue;
+            string leafCanon = Canon(leaf.text);
+            if (leafCanon.IndexOf(key, System.StringComparison.Ordinal) < 0) continue;
+
+            // Find row(s): prefer groups with 2~80 texts, apply to leaf only if no suitable row found
+            Transform rowRoot = leaf.transform;
+            Transform cursor = leaf.transform;
+            for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
+            {
+                var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+                int cnt = desc != null ? desc.Length : 0;
+                if (cnt >= 2 && cnt <= 80) { rowRoot = cursor; break; }
+                cursor = cursor.parent;
+            }
+
+            var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            for (int j = 0; j < rowTmps.Length; j++)
+            {
+                var t = rowTmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
+            }
+        }
+    }
+
+    // Dose-aware row highlighting inside Medication_List only (med name + dose)
+    void ApplyMedicationDoseRowHighlight(string medNameKey, string doseKey, bool on)
+    {
+        if (string.IsNullOrWhiteSpace(medNameKey) || string.IsNullOrWhiteSpace(doseKey)) return;
+        if (!IsNurseSceneActive()) return;
         var root = FindMedicationListRoot();
         if (root == null) return;
 
-        // Find any TMP containing the medication key
-        var tmps = root.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
-        TMPro.TextMeshProUGUI leaf = null;
-        for (int i = 0; i < tmps.Length; i++)
+        string Canon(string s)
         {
-            var t = tmps[i];
-            if (t != null && !string.IsNullOrEmpty(t.text) &&
-                t.text.IndexOf(medKey, System.StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                leaf = t;
-                break;
-            }
-        }
-        if (leaf == null) return;
-
-        // Choose the highest ancestor under list root whose subtree contains medKey but NOT the other med key
-        string amio = FindMultiLang("Amiodarone");
-        string epi  = FindMultiLang("Epinephrine");
-        string otherKey = string.Equals(medKey, amio, System.StringComparison.OrdinalIgnoreCase) ? epi : amio;
-
-        Transform rowRoot = null;
-        Transform cursor = leaf.transform;
-        for (int hop = 0; hop < 8 && cursor != null && cursor != root; hop++)
-        {
-            var desc = cursor.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
-            bool hasMed = false, hasOther = false;
-            for (int j = 0; j < desc.Length; j++)
-            {
-                var dt = desc[j];
-                if (dt == null || string.IsNullOrEmpty(dt.text)) continue;
-                var txt = dt.text;
-                if (!hasMed && txt.IndexOf(medKey, System.StringComparison.OrdinalIgnoreCase) >= 0) hasMed = true;
-                if (!hasOther && txt.IndexOf(otherKey, System.StringComparison.OrdinalIgnoreCase) >= 0) hasOther = true;
-                if (hasMed && hasOther) break;
-            }
-            if (hasMed && !hasOther)
-            {
-                rowRoot = cursor; // keep highest matching ancestor
-            }
-            cursor = cursor.parent;
+            if (string.IsNullOrWhiteSpace(s)) return "";
+            s = s.ToLowerInvariant();
+            try { s = System.Text.RegularExpressions.Regex.Replace(s, @"[^a-z0-9]", ""); } catch {}
+            return s.Trim();
         }
 
-        // Fallback: immediate parent if heuristic fails
-        if (rowRoot == null) rowRoot = leaf.transform.parent != null ? leaf.transform.parent : leaf.transform;
+        string medKey = Canon(medNameKey);
+        string doseK = Canon(doseKey);
+        if (string.IsNullOrEmpty(medKey) || string.IsNullOrEmpty(doseK)) return;
 
-        var rowTmps = rowRoot.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        var groups = root.GetComponentsInChildren<Transform>(true);
         var amber = new Color(1f, 0.85f, 0.1f, 1f);
-        for (int i = 0; i < rowTmps.Length; i++)
+
+        for (int gi = 0; gi < groups.Length; gi++)
         {
-            var t = rowTmps[i];
-            if (t == null) continue;
-            int id = t.GetInstanceID();
-            if (!_origMedListTMP.ContainsKey(id))
+            var g = groups[gi];
+            if (g == null || g == root) continue;
+            var tmps = g.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            int cnt = tmps != null ? tmps.Length : 0;
+            if (cnt == 0 || cnt > 80) continue;
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(256);
+            for (int t = 0; t < tmps.Length; t++)
             {
-                _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                var gt = tmps[t];
+                if (gt == null || string.IsNullOrEmpty(gt.text)) continue;
+                sb.Append(Canon(gt.text));
             }
-            if (on)
+            string canon = sb.ToString();
+            if (canon.IndexOf(medKey, System.StringComparison.Ordinal) >= 0 &&
+                canon.IndexOf(doseK, System.StringComparison.Ordinal) >= 0)
             {
-                t.fontStyle = TMPro.FontStyles.Bold;
-                t.color = amber;
-            }
-            else
-            {
-                try
+                for (int j = 0; j < tmps.Length; j++)
                 {
-                    var orig = _origMedListTMP[id];
-                    if (orig != null)
+                    var t = tmps[j];
+                    if (t == null) continue;
+                    int id = t.GetInstanceID();
+                    if (!_origMedListTMP.ContainsKey(id))
                     {
-                        t.fontStyle = orig.style;
-                        t.color = orig.color;
+                        _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                    }
+                    if (on)
+                    {
+                        t.fontStyle = TMPro.FontStyles.Bold;
+                        t.color = amber;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var orig = _origMedListTMP[id];
+                            if (orig != null)
+                            {
+                                t.fontStyle = orig.style;
+                                t.color = orig.color;
+                            }
+                        }
+                        catch {}
                     }
                 }
-                catch {}
+            }
+        }
+    }
+
+    // NEW: Dose-only row highlighting; inside Medication_List only
+    void ApplyDoseOnlyRowHighlight(string doseKey, bool on)
+    {
+        if (string.IsNullOrWhiteSpace(doseKey)) return;
+        if (!IsNurseSceneActive()) return;
+        var root = FindMedicationListRoot();
+        if (root == null) return;
+
+        string dosePattern = doseKey.Trim();
+        var groups = root.GetComponentsInChildren<Transform>(true);
+        var amber = new Color(1f, 0.85f, 0.1f, 1f);
+
+        for (int gi = 0; gi < groups.Length; gi++)
+        {
+            var g = groups[gi];
+            if (g == null || g == root) continue;
+            var tmps = g.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            int cnt = tmps != null ? tmps.Length : 0;
+            if (cnt == 0 || cnt > 80) continue;
+
+            bool containsDose = false;
+            for (int t = 0; t < tmps.Length; t++)
+            {
+                var gt = tmps[t];
+                if (gt == null || string.IsNullOrEmpty(gt.text)) continue;
+                // Case-insensitive exact substring match of dose text
+                if (gt.text.IndexOf(dosePattern, System.StringComparison.OrdinalIgnoreCase) >= 0) { containsDose = true; break; }
+            }
+            if (!containsDose) continue;
+
+            for (int j = 0; j < tmps.Length; j++)
+            {
+                var t = tmps[j];
+                if (t == null) continue;
+                int id = t.GetInstanceID();
+                if (!_origMedListTMP.ContainsKey(id))
+                {
+                    _origMedListTMP[id] = new OriginalTMPState { color = t.color, style = t.fontStyle };
+                }
+                if (on)
+                {
+                    t.fontStyle = TMPro.FontStyles.Bold;
+                    t.color = amber;
+                }
+                else
+                {
+                    try
+                    {
+                        var orig = _origMedListTMP[id];
+                        if (orig != null)
+                        {
+                            t.fontStyle = orig.style;
+                            t.color = orig.color;
+                        }
+                    }
+                    catch {}
+                }
             }
         }
     }
 
     void HighlightAmiodaroneOrder(bool on)
     {
-        string key = FindMultiLang("Amiodarone");
-        // Medication orders highlight removed; apply only to Medication_List row
-        ApplyMedicationListRowHighlight(key, on);
+        // Use ID-based highlighting
+        ApplyMedicationListRowHighlightById(1, on);
+        // Optional: name fallback
+        // ApplyMedicationListRowHighlight(FindMultiLang("Amiodarone"), on);
     }
 
-    // CHANGE NOTE (2025-09-04, mj)
-    // remove all blinking effects from the medication list UI, keeping only the yellow PREPARING highlight.
 
     void HighlightEpinephrineOrder(bool on)
     {
-        string key = FindMultiLang("Epinephrine");
-        // Medication orders highlight removed; apply only to Medication_List row
-        ApplyMedicationListRowHighlight(key, on);
+        // Use ID-based highlighting
+        ApplyMedicationListRowHighlightById(5, on);
+        // ApplyMedicationListRowHighlight(FindMultiLang("Epinephrine"), on);
     }
+    
+    // CHANGE NOTE (2025-09-09, mj): add generic highlight method for all medications
+
+    void HighlightMedicationOrder(string medName, bool on)
+    {
+        if (string.IsNullOrEmpty(medName)) return;
+        ApplyMedicationListRowHighlight(medName, on);
+    }
+
+    // Generic ID-based highlighter
+    void HighlightMedicationOrderById(int medId, bool on)
+    {
+        if (medId <= 0) return;
+        
+        
+        ApplyMedicationListRowHighlightById(medId, on);
+    }
+
 }

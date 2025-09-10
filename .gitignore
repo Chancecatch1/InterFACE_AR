@@ -26,9 +26,18 @@
 # Visual Studio cache directory
 .vs/
 .vscode/
+
+# Cursor
 .cursor/
+
+# WARP
 WARP.md
+
+# Presets
 Presets/
+
+# Docs
+docs/
 
 # Gradle cache directory
 .gradle/
