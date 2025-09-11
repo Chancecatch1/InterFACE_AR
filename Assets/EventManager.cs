@@ -1113,6 +1113,8 @@ public class EventManager : MonoBehaviour
                     // Remove trailing 'at' if left after stripping energy
                     try { baseName = System.Text.RegularExpressions.Regex.Replace(baseName ?? "", @"\s+at\s*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(); } catch {}
                     baseName = baseName.Replace(":", " ").Trim();
+                    // 표기 보정: defibrillation → Defibrillation (대소문자 일관)
+                    baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"\bdefibrillation\b", "Defibrillation", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     if (string.IsNullOrWhiteSpace(baseName)) baseName = "defibrillation"; // 폴백
 
                     // 최종 조합: "<base> at <절대J> (<perKgJ>)"
@@ -1988,21 +1990,31 @@ public class EventManager : MonoBehaviour
             }
 
             if (cprTimersModel != null) {
-                if (cprTimersModel["cprTimerOn"] != null) {
-                    Debug.Log(cprTimersModel["cprTimerOn"]);
-                    DateTime dt = DateTime.Parse((string) cprTimersModel["cprTimer"]);
-                    cprStartTimestamp = new DateTimeOffset(dt).ToUnixTimeMilliseconds();
+                // 서버가 cprTimerOn을 보내지 않는 경우도 있어 cprTimer 존재만으로도 시작으로 간주
+                bool cprOn = false; try { if (cprTimersModel["cprTimerOn"] != null) cprOn = cprTimersModel["cprTimerOn"].AsBool; } catch {}
+                var cprTimerNode = cprTimersModel["cprTimer"];
+                string cprTimerStr = cprTimerNode;
 
+                if (!string.IsNullOrWhiteSpace(cprTimerStr)) {
+                    // 타이머 시작/재시작
+                    DateTime dt = DateTime.Parse(cprTimerStr);
+                    cprStartTimestamp = new DateTimeOffset(dt).ToUnixTimeMilliseconds();
                     time1 = (cprStartTimestamp - unixTime) / 1000;
                     Debug.Log("cprTimer");
                     Debug.Log(time1);
                     Debug.Log("cprTimer");
                     if (prev_cprStartTimestamp != cprStartTimestamp) {
                         StartCoroutine(SetCPR_5Sec(false));
-                        cpr_5sec = false;
-                        cpr_5sec_coroutine = false;
+                        // 알림 및 플래그 즉시 해제
+                        DismissCprOverdueNoti();
                         prev_cprStartTimestamp = cprStartTimestamp;
                     }
+                } else if (cprTimersModel["cprTimerOn"] != null && cprOn == false) {
+                    // 타이머 OFF 명시
+                    cprStartTimestamp = 0;
+                    prev_cprStartTimestamp = 0;
+                    cpr_5sec = false;
+                    cpr_5sec_coroutine = false;
                 }
             }
         } catch (Exception e) {
@@ -3379,6 +3391,27 @@ if (medID == 1) {
             // reset epi flashing state
             epi_5sec = false;
             epi_5sec_coroutine = false;
+        }
+        catch {}
+    }
+
+    // CHANGE NOTE (2025-09-11, mj): CPR OVERDUE noti dismiss immediately (on timer restart)
+    void DismissCprOverdueNoti()
+    {
+        try
+        {
+            for (int i = notiCprArr.Count - 1; i >= 0; i--)
+            {
+                GameObject go = (GameObject)notiCprArr[i];
+                notiCprArr.RemoveAt(i);
+                if (go != null)
+                {
+                    go.SetActive(false);
+                    Destroy(go, 0.0f);
+                }
+            }
+            cpr_5sec = false;
+            cpr_5sec_coroutine = false;
         }
         catch {}
     }

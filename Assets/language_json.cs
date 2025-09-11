@@ -11,7 +11,7 @@ static public class InstructionFinder {
     static public string FindByTag (string a, string lang) {
         SimpleJSON.JSONNode json = SimpleJSON.JSON.Parse(EN_JSONString);
         if (lang == "fr") {
-            json = SimpleJSON.JSON.Parse(EN_JSONString);
+            json = SimpleJSON.JSON.Parse(FR_JSONString);
         }
 
         string instruction = json[a];
