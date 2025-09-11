@@ -588,14 +588,14 @@ PlayerSettings:
   apiCompatibilityLevelPerPlatform: {}
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
-  metroPackageName: HXIInterfaceAR
-  metroPackageVersion: 1.0.0.0
+  metroPackageName: InterfaceARHXI
+  metroPackageVersion: 1.1.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
   metroCertificatePassword: Hb-=<<84>4>
   metroCertificateSubject: mj
   metroCertificateIssuer: mj
   metroCertificateNotAfter: 003499fcfa3ddd01
-  metroApplicationDescription: AR_Application
+  metroApplicationDescription: HXI_AR_Application
   wsaImages: {}
   metroTileShortName: InterFACE_AR
   metroTileShowName: 0

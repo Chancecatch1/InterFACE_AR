@@ -999,8 +999,8 @@ public class EventManager : MonoBehaviour
                 return text ?? "";
             }
 
-            // CHANGE NOTE (2025-09-10, mj): Doctor 전용 텍스트 구성자 업데이트
-            // 규칙: 동사/콜론 제거, 결과값 우선 + 기준 계산식 1개 유지
+            // CHANGE NOTE (2025-09-10, mj): Update Doctor-specific text composer
+            // Rules: remove verb/colon, prioritize result value + keep 1 calc fragment
             // Shock: "defibrillation at 110J (2J/kg)" / Med: "Epinephrine 0.01mg/kg = 0.55 mg"
             string ComposeTextForDoctor(SimpleJSON.JSONNode n)
             {
@@ -1025,29 +1025,29 @@ public class EventManager : MonoBehaviour
                 string text = NormalizeUnits(baseRaw);
                 if (!string.IsNullOrWhiteSpace(param)) param = NormalizeUnits(param);
 
-                // Doctor 토큰 간격 압축: per-kg·J 절대값에만 적용 (최종 mg/mL는 보존)
+                // Doctor token spacing: only apply to per-kg·J absolute values (preserve final mg/mL)
                 string TightenDoctorTokens(string s)
                 {
                     if (string.IsNullOrWhiteSpace(s)) return s;
                     try
                     {
-                        // X mg/kg, X mL/kg, X J/kg -> 공백 제거
+                        // X mg/kg, X mL/kg, X J/kg -> remove whitespace
                         s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL)\s*/\s*kg", m =>
                         {
                             var num = m.Groups[1].Value;
                             var unit = m.Groups[2].Value;
-                            unit = unit == "ml" ? "mL" : unit; // 안전치환
+                            unit = unit == "ml" ? "mL" : unit; // safe replacement
                             return num + unit + "/kg";
                         }, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                         s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*J\s*/\s*kg", "$1J/kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                        // 절대 에너지 X J -> 공백 제거
+                        // Absolute energy X J -> remove whitespace
                         s = System.Text.RegularExpressions.Regex.Replace(s, @"(\d+(?:\.[0-9]+)?)\s*J\b", "$1J", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     }
                     catch {}
                     return s.Trim();
                 }
 
-                // Shock/에너지 단계 감지
+                // Shock/energy stage detection
                 bool isJPerKg =
                     System.Text.RegularExpressions.Regex.IsMatch(text ?? "", @"J\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase) ||
                     System.Text.RegularExpressions.Regex.IsMatch(param ?? "", @"J\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1056,11 +1056,11 @@ public class EventManager : MonoBehaviour
 
                 if (isJPerKg || isShockWord)
                 {
-                    // per-kg 에너지 추출
+                    // per-kg energy extraction
                     string perKgJ = ExtractPerKgJ(param);
                     if (string.IsNullOrWhiteSpace(perKgJ)) perKgJ = ExtractPerKgJ(text);
 
-                    // 절대 J 추출: param 우선(마지막 값), 없으면 text(마지막 값)
+                    // Extract absolute J: param first (last value), else text (last value)
                     string finalJ = null;
                     try
                     {
@@ -1094,7 +1094,7 @@ public class EventManager : MonoBehaviour
                     }
                     catch {}
 
-                    // per-kg만 있고 절대값 없으며 체중 있으면 계산
+                    // per-kg only, no absolute value, and weight exists -> calculate
                     if (string.IsNullOrWhiteSpace(finalJ) && !string.IsNullOrWhiteSpace(perKgJ) && bodyWeightKg > 0)
                     {
                         var m = System.Text.RegularExpressions.Regex.Match(perKgJ, @"(\d+(?:\.[0-9]+)?)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
@@ -1105,7 +1105,7 @@ public class EventManager : MonoBehaviour
                         }
                     }
 
-                    // 기본 문구 정리: 동사/콜론/계산 파트 제거
+                    // Basic text cleanup: remove verb/colon/calc parts
                     string baseName = text;
                     baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"^\s*(order|prepare|administer|give|for)\b\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     baseName = CleanCalcFromText(baseName, param);
@@ -1113,11 +1113,11 @@ public class EventManager : MonoBehaviour
                     // Remove trailing 'at' if left after stripping energy
                     try { baseName = System.Text.RegularExpressions.Regex.Replace(baseName ?? "", @"\s+at\s*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim(); } catch {}
                     baseName = baseName.Replace(":", " ").Trim();
-                    // 표기 보정: defibrillation → Defibrillation (대소문자 일관)
+                    // Fix capitalization: defibrillation → Defibrillation (consistent case)
                     baseName = System.Text.RegularExpressions.Regex.Replace(baseName, @"\bdefibrillation\b", "Defibrillation", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                    if (string.IsNullOrWhiteSpace(baseName)) baseName = "defibrillation"; // 폴백
+                    if (string.IsNullOrWhiteSpace(baseName)) baseName = "defibrillation"; // fallback
 
-                    // 최종 조합: "<base> at <절대J> (<perKgJ>)"
+                    // Final composition: "<base> at <absoluteJ> (<perKgJ>)"
                     string composed = baseName;
                     if (!string.IsNullOrWhiteSpace(finalJ)) composed += " at " + finalJ;
                     if (!string.IsNullOrWhiteSpace(perKgJ)) composed += " (" + perKgJ + ")";
@@ -1126,24 +1126,24 @@ public class EventManager : MonoBehaviour
                 }
                 else
                 {
-                    // 약물 경로: mg/kg 선호, 없다면 mL/kg; 결과값 있으면 '= 값'
+                    // Drug route: prefer mg/kg, else mL/kg; if result value, '= value'
                     string medName = text;
                     medName = System.Text.RegularExpressions.Regex.Replace(medName, @"^\s*(order|prepare|administer|give)\b\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
                     medName = CleanCalcFromText(medName, param);
                     medName = medName.Replace(":", " ").Trim();
-                    // 문장 시작 대문자화
+                    // Sentence start capitalization
                     if (!string.IsNullOrEmpty(medName))
                     {
                         try { medName = char.ToUpperInvariant(medName[0]) + (medName.Length > 1 ? medName.Substring(1) : ""); } catch {}
                     }
 
-                    // per-kg 선택 (질량 우선 → 용적)
+                    // per-kg selection (mass → volume)
                     string perKg = ExtractPerKgMass(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgMass(text);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(text);
 
-                    // 최종 용량
+                    // Final volume
                     string final = ExtractFinalValue(param);
                     if (string.IsNullOrWhiteSpace(final) && bodyWeightKg > 0)
                     {
@@ -1238,10 +1238,10 @@ public class EventManager : MonoBehaviour
             if (obj["cprNurseHintsModel"] == null) {
                 
             } else if (useServerHintsForNurseNext) {
-                // CHANGE NOTE (2025-09-09, mj): Nurse_Next는 힌트/오버플로우 도착 순서 큐에 누적합니다.
+                // CHANGE NOTE (2025-09-09, mj): Nurse_Next accumulates hints/overflow arrival order queue.
                 SimpleJSON.JSONNode instrunctions = obj["cprNurseHintsModel"]["nextStepHints"];
 
-                // 현재 Current(Primary)와의 중복 방지용 집합 구성 // build current set for dedup
+                // build current set for dedup to avoid duplicates with Current(Primary)
                 var curSet = new System.Collections.Generic.HashSet<string>();
                 var curNodesN = obj["cprNurseHintsModel"]["primaryHints"];
                 if (curNodesN != null)
@@ -1270,9 +1270,9 @@ public class EventManager : MonoBehaviour
 
                     hintVals.Add(val);
                 }
-                lastHintNext = hintVals; // 최신 힌트 기억 // remember newest hints
-                for (int h = 0; h < hintVals.Count; h++) NurseNextAppendIfNew(hintVals[h]); // 큐에 추가 // append to queue
-                NurseNextRender(); // 즉시 렌더 // render now
+                lastHintNext = hintVals; // remember newest hints
+                for (int h = 0; h < hintVals.Count; h++) NurseNextAppendIfNew(hintVals[h]); // append to queue
+                NurseNextRender(); // render now
             }
 
             if (obj["cprLeaderHintsModel"] == null) {
@@ -1949,11 +1949,11 @@ public class EventManager : MonoBehaviour
                                         if (isAmio) HighlightAmiodaroneOrder(false);
                                         if (isEpi) {
                                             HighlightEpinephrineOrder(false);
-                                            // OVERDUE(Epi) 알림 즉시 제거 // dismiss Epi overdue notification immediately
+                                            // dismiss Epi overdue notification immediately
                                             DismissEpiOverdueNoti();
                                         }
                                         ConfirmFlashOrderDisplay(medName);
-                                        // CHANGE NOTE (2025-09-09, mj): 투약 완료 시 Nurse_Next에서도 즉시 제거
+                                        // CHANGE NOTE (2025-09-09, mj): dismiss Nurse_Next immediately when medication is completed
                                         NurseNextRemoveByMedName(medName);
                                         NurseNextRender();
                                         if (callUpdateNoti) UpdateNoti(medName, doseLabel, 0);
@@ -1990,13 +1990,13 @@ public class EventManager : MonoBehaviour
             }
 
             if (cprTimersModel != null) {
-                // 서버가 cprTimerOn을 보내지 않는 경우도 있어 cprTimer 존재만으로도 시작으로 간주
+                // even if server doesn't send cprTimerOn, consider it a start just by cprTimer's existence
                 bool cprOn = false; try { if (cprTimersModel["cprTimerOn"] != null) cprOn = cprTimersModel["cprTimerOn"].AsBool; } catch {}
                 var cprTimerNode = cprTimersModel["cprTimer"];
                 string cprTimerStr = cprTimerNode;
 
                 if (!string.IsNullOrWhiteSpace(cprTimerStr)) {
-                    // 타이머 시작/재시작
+                    // timer start/restart
                     DateTime dt = DateTime.Parse(cprTimerStr);
                     cprStartTimestamp = new DateTimeOffset(dt).ToUnixTimeMilliseconds();
                     time1 = (cprStartTimestamp - unixTime) / 1000;
@@ -2005,12 +2005,12 @@ public class EventManager : MonoBehaviour
                     Debug.Log("cprTimer");
                     if (prev_cprStartTimestamp != cprStartTimestamp) {
                         StartCoroutine(SetCPR_5Sec(false));
-                        // 알림 및 플래그 즉시 해제
+                        // dismiss notification and flag immediately
                         DismissCprOverdueNoti();
                         prev_cprStartTimestamp = cprStartTimestamp;
                     }
                 } else if (cprTimersModel["cprTimerOn"] != null && cprOn == false) {
-                    // 타이머 OFF 명시
+                    // timer OFF explicitly
                     cprStartTimestamp = 0;
                     prev_cprStartTimestamp = 0;
                     cpr_5sec = false;
@@ -2120,7 +2120,7 @@ public class EventManager : MonoBehaviour
                                 if (dose["doseInstances"] != null && dose["doseInstances"].Count > 0) {
                                     foreach(SimpleJSON.JSONNode doseInstance in dose["doseInstances"]) {
                                         if (doseInstance["status"] == "PREPARING") {
-                                            // 간호사 화면에 약물 주문 표시
+                                            // display medication order on nurse screen
                                             if (Nurse_Cur_1.text == "") {
                                                 Nurse_Cur_1.text = id;
                                             } else if (Nurse_Cur_2.text == "") {
@@ -2699,23 +2699,11 @@ if (medID == 1) {
                     }
                 }
 
-                // CHANGE NOTE (2025-09-09, mj): 모든 약물에 하이라이트 적용 // Apply highlight to all medications
-                // 왜(Why): Hyperkalemia 등 특정 카테고리에서 오더 후 하이라이트 반영 누락 문제 해결
-                // 무엇(What): 모든 약물(ID 1-19)에 대해 ORDERED && !READY 상태시 하이라이트 적용
-                // 동작(Behaviour): PREPARING/AUTO_PREPARING 상태이면서 READY가 아닌 모든 약물 하이라이트
-                // 흐름(Flow): medication() → 각 약물 상태 확인 → 조건 충족시 하이라이트
-                // 연결(Connections): HighlightMedicationOrder() 새로 추가, _uiNameByMedId 사용
-                // 학습점(Learn Points): 기존 Amio/Epi 전용 로직을 일반화하여 모든 약물 지원
-                // 위험/영향/롤백(Risk/Impact/Rollback): 
-                // - 위험도: 낮음  
-                // - 영향: 간호사 화면에서 모든 약물 오더 시각적 피드백 개선
-                // - 롤백: 이 블록 제거하고 기존 주석 복원
-                // 
-                // TL;DR: 모든 약물 오더시 하이라이트 적용으로 시각적 피드백 개선
+                // CHANGE NOTE (2025-09-09, mj): Apply highlight to all medications
                 // Enables highlighting for all medication orders, not just Amio/Epi.
                 for (int hi = 0; hi < storedMedJson.Count; hi++) {
                     int medIdForHighlight = storedMedJson[hi]["id"];
-                    // Amio/Epi는 이미 위에서 처리됨 // Skip Amio/Epi as they're handled above
+                    // Skip Amio/Epi as they're handled above
                     if (medIdForHighlight == 1 || medIdForHighlight == 5) continue;
                     
                     SimpleJSON.JSONNode medNodeH = storedMedJson[hi];
@@ -2820,24 +2808,7 @@ if (medID == 1) {
                     }
                 }
 
-                // CHANGE NOTE (2025-09-09, mj): Nurse Current 3행 규칙 및 Next 오버플로우 구현
-                // 왜(Why): 테스트에서 Hyper-K 등 기타 약물이 Current Orders에 표시되지 않고 하이라이트 누락
-                // 무엇(What): Nurse_Cur_1/2는 Amio/Epi 고정, Nurse_Cur_3에 첫 번째 기타 ORDERED 약물 배치
-                //           초과 기타 약물은 Nurse_Next_1→2→3로 순차 오버플로우
-                // 동작(Behaviour): PREPARING/AUTO_PREPARING이지만 READY 아닌 기타 약물만 대상
-                //                 Cur_3 약물이 READY되면 Next_1이 자동 승격
-                // 흐름(Flow): medication() → 기타 약물 스캔 → 첫 번째는 Cur_3 → 나머지는 Next 순차 배치
-                // 연결(Connections): MedHasStatus(), MedHasAnyPreparing()로 상태 판별
-                //                    FindMultiLang()로 다국어 약물명 처리
-                // 학습점(Learn Points): 서버 힌트와 medication() 경로가 충돌하지 않도록 useServerHintsForNurseCurrent=false 유지
-                //                       3행 규칙은 클라이언트에서 로컬 구현하여 서버 변경 불요
-                // 위험/영향/롤백(Risk/Impact/Rollback): 
-                // - 위험도: 낮음
-                // - 영향: Nurse 씬에서만 Current/Next 표시 변경, 다른 씬 영향 없음
-                // - 롤백: 이 블록 전체 제거하면 이전 동작으로 복원
-                // 
-                // TL;DR: Nurse_Cur 3행(Amio/Epi/기타) 규칙 구현, 초과는 Next로 오버플로우
-                // Implements 3-row rule for Nurse Current Orders, overflow to Next.
+                // CHANGE NOTE (2025-09-09, mj): Nurse Current 3-row rule and Next overflow implementation
                 try
                 {
                     if (IsNurseSceneActive())
