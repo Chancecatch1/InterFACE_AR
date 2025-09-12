@@ -247,6 +247,10 @@ public class EventManager : MonoBehaviour
     SimpleJSON.JSONNode multi;
     // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent
     double bodyWeightKg = 0;
+    // CHANGE NOTE (2025-09-12, mj): Rendering throttling for Nurse medication panel
+    // Avoid excessive re-renders when SSE arrives while maintaining state
+    float _lastMedUiRenderTime = 0f;
+    float _minMedRenderIntervalSec = 0.3f;
 
     // CHANGE NOTE (2025-09-12, mj): Keep track of last SSE medication snapshot and initialization status
     SimpleJSON.JSONNode _lastMedicationModelFromSse = null;
@@ -2122,6 +2126,18 @@ public class EventManager : MonoBehaviour
         } catch (Exception e) {
             Debug.Log(e);
         }
+
+        // CHANGE NOTE (2025-09-12, mj): Rendering throttling for Nurse medication panel
+        // Avoid excessive re-renders when SSE arrives while maintaining state
+        m_queueAction.Enqueue(() => {
+            if (IsNurseSceneActive()) {
+                if (Time.unscaledTime - _lastMedUiRenderTime >= _minMedRenderIntervalSec) {
+                    _lastMedUiRenderTime = Time.unscaledTime;
+                    var snapshot = _lastMedicationModelFromSse != null ? _lastMedicationModelFromSse : medications;
+                    if (snapshot != null) medication(snapshot);
+                }
+            }
+        });
     }
 
     public Material materialFinder (string status){
