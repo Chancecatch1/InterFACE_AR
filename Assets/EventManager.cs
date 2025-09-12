@@ -740,32 +740,107 @@ public class EventManager : MonoBehaviour
                 return "";
             }
 
-            // Optional: wrap long lines after the colon for readability
+            // Optional: smart wrap for long medication lines
+            // Rules:
+            // - If short enough: return as-is
+            // - Prefer break after '=' so final dose moves to next line
+            // - If still too long, break after medication name (before per‑kg)
+            // - Cap at max 3 lines total
             string WrapIfLong(string composed)
             {
                 if (string.IsNullOrWhiteSpace(composed)) return composed;
+                // Bind numbers and units to avoid bad breaks
                 try
                 {
                     composed = Regex.Replace(composed, @"(\d+(?:\.[0-9]+)?)\s+(mg|mcg|g|mL|J|mEq|U|units)\b", "$1\u00A0$2", RegexOptions.IgnoreCase);
                     composed = Regex.Replace(composed, @"(\d+(?:\.[0-9]+)?)\s+J\s*/\s*kg", "$1\u00A0J/kg", RegexOptions.IgnoreCase);
                 }
                 catch {}
-                if (composed.Length <= 28) return composed;
 
-                int colon = composed.IndexOf(':');
-                if (colon > 0 && colon < composed.Length - 1)
+                int limit = 28;
+                if (composed.Length <= limit) return composed;
+
+                string result = composed;
+
+                // Step 1: break after '=' if present
+                int eq = result.IndexOf('=');
+                if (eq >= 0 && eq < result.Length - 1)
                 {
-                    string left = composed.Substring(0, colon).TrimEnd();
-                    string right = composed.Substring(colon + 1).TrimStart();
-                    if (right.Length > 18 && right.Contains(" (")) right = right.Replace(" (", "\n(");
-                    return left + ":\n" + right;
+                    string left = result.Substring(0, eq + 1).TrimEnd();
+                    string right = result.Substring(eq + 1).TrimStart();
+                    result = left + "\n" + right;
                 }
-                int par = composed.IndexOf(" (");
-                if (par > 0)
+
+                // Step 2: if longest line still too long, break after medication name (before per‑kg)
+                string[] lines = result.Split('\n');
+                int maxLen = 0; for (int i = 0; i < lines.Length; i++) if (lines[i].Length > maxLen) maxLen = lines[i].Length;
+                if (maxLen > limit)
                 {
-                    return composed.Substring(0, par) + "\n" + composed.Substring(par + 1).TrimStart(' ');
+                    // Use original (no newlines) to find med name and per‑kg
+                    string raw = composed.Replace("\n", " ");
+                    var m = Regex.Match(raw, @"\b(\d+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL)\s*/\s*kg\b", RegexOptions.IgnoreCase);
+                    if (m.Success && m.Index > 0)
+                    {
+                        string left = raw.Substring(0, m.Index).TrimEnd();
+                        string right = raw.Substring(m.Index).TrimStart();
+                        result = left + "\n" + right;
+                    }
                 }
-                return composed;
+
+                // Step 3: if still too long, and we have '=', split the second part to a third line
+                lines = result.Split('\n');
+                maxLen = 0; for (int i = 0; i < lines.Length; i++) if (lines[i].Length > maxLen) maxLen = lines[i].Length;
+                if (maxLen > limit && lines.Length < 3)
+                {
+                    // Try to split last line around '=' to keep <= 3 lines
+                    int last = lines.Length - 1;
+                    int eq2 = lines[last].IndexOf('=');
+                    if (eq2 >= 0 && eq2 < lines[last].Length - 1)
+                    {
+                        string l = lines[last].Substring(0, eq2 + 1).TrimEnd();
+                        string r = lines[last].Substring(eq2 + 1).TrimStart();
+                        lines[last] = l;
+                        result = string.Join("\n", lines) + "\n" + r;
+                    }
+                }
+
+                // Ensure no more than 3 lines
+                lines = result.Split('\n');
+                if (lines.Length > 3)
+                {
+                    result = string.Join("\n", new string[]{ lines[0], lines[1], lines[2] });
+                }
+                return result;
+            }
+
+            // CHANGE NOTE (2025-09-12, mj): UI-safe wrapper enforcing chunk binding (no visible tokens)
+            // - Convert standard spaces within critical tokens to non-breaking spaces so TMP keeps chunks intact
+            // - Apply WrapIfLong at the end to keep 3-line rule
+            string WrapMedicationLineForUI(string s)
+            {
+                if (string.IsNullOrWhiteSpace(s)) return s;
+                string txt = s;
+                try
+                {
+                    // Bind final dose: "= 125 mg" -> "= 125\u00A0mg"
+                    txt = Regex.Replace(txt, @"=\s*([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL|J|mEq|U|units)\b", m =>
+                    {
+                        var num = m.Groups[1].Value;
+                        var unit = m.Groups[2].Value;
+                        return "= " + num + "\u00A0" + unit; // invisible NBSP in UI
+                    }, RegexOptions.IgnoreCase);
+
+                    // Bind per-kg mass/vol: "0.01 mg/kg" -> "0.01\u00A0mg/kg"
+                    txt = Regex.Replace(txt, @"\b([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL)\s*/\s*kg\b", m =>
+                    {
+                        var num = m.Groups[1].Value;
+                        var unit = m.Groups[2].Value;
+                        return num + "\u00A0" + unit + "/kg";
+                    }, RegexOptions.IgnoreCase);
+                }
+                catch {}
+
+                return WrapIfLong(txt);
             }
 
             string TryComputePerKgFinal(string s, double weightKg)
@@ -851,6 +926,10 @@ public class EventManager : MonoBehaviour
                 {
                     text = Regex.Replace(text, @"(\d+(?:\.[0-9]+)?)\s+(mg|mcg|g|mL|J|mEq|U|units)\b", "$1\u00A0$2", RegexOptions.IgnoreCase);
                     text = Regex.Replace(text, @"(\d+(?:\.[0-9]+)?)\s+J\s*/\s*kg", "$1\u00A0J/kg", RegexOptions.IgnoreCase);
+                    // Remove noisy UI tokens like "IconPreparing"
+                    text = Regex.Replace(text, @"\b\w*IconPreparing\b", "", RegexOptions.IgnoreCase);
+                    text = Regex.Replace(text, @"\bIcon\b", "", RegexOptions.IgnoreCase);
+                    while (text.IndexOf("  ") >= 0) text = text.Replace("  ", " ");
                 }
                 catch {}
                 return text;
@@ -994,9 +1073,9 @@ public class EventManager : MonoBehaviour
                 if (string.IsNullOrWhiteSpace(text)) return "";
 
                 if (!string.IsNullOrWhiteSpace(final))
-                    return $"{text}: {final}";
+                    return CleanMedNameForDisplay($"{text}: {final}");
 
-                return text ?? "";
+                return CleanMedNameForDisplay(text) ?? "";
             }
 
             // CHANGE NOTE (2025-09-10, mj): Update Doctor-specific text composer
@@ -1137,11 +1216,13 @@ public class EventManager : MonoBehaviour
                         try { medName = char.ToUpperInvariant(medName[0]) + (medName.Length > 1 ? medName.Substring(1) : ""); } catch {}
                     }
 
-                    // per-kg selection (mass → volume)
+                    // per-kg selection (mass → volume → other)
                     string perKg = ExtractPerKgMass(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgMass(text);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
                     if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgVol(text);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgOther(!string.IsNullOrWhiteSpace(param) ? param : baseRaw);
+                    if (string.IsNullOrWhiteSpace(perKg)) perKg = ExtractPerKgOther(text);
 
                     // Final volume
                     string final = ExtractFinalValue(param);
@@ -1151,11 +1232,13 @@ public class EventManager : MonoBehaviour
                         final = TryComputePerKgFinal(source, bodyWeightKg);
                     }
 
-                    string composed = medName;
-                    if (!string.IsNullOrWhiteSpace(perKg)) composed += " " + perKg;
-                    if (!string.IsNullOrWhiteSpace(final)) composed += " = " + final;
-
-                    composed = TidySpacing(composed);
+                    // Do NOT normalize units on name part
+                    string namePart = CleanMedNameForDisplay(medName);
+                    string dosePart = "";
+                    if (!string.IsNullOrWhiteSpace(perKg)) dosePart += (dosePart.Length>0?" ":"") + perKg;
+                    if (!string.IsNullOrWhiteSpace(final)) dosePart += (dosePart.Length>0?" = ":"=") + final;
+                    dosePart = TidySpacing(dosePart);
+                    string composed = string.IsNullOrWhiteSpace(dosePart) ? namePart : (namePart + " " + dosePart);
                     return TightenDoctorTokens(composed);
                 }
             }
@@ -1206,9 +1289,9 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
                     */
-                    // Compose: General text + final value (if any)
+                    // Compose: General text + final value (if any) then UI wrapping
                     string instruction = ComposeTextFinal(instrunctions[i]);
-                    instruction = WrapIfLong(instruction);
+                    instruction = WrapMedicationLineForUI(instruction);
                     
                     if (i == 0) {
                         if (Nurse_Cur_1 != null) {
@@ -1261,8 +1344,14 @@ public class EventManager : MonoBehaviour
                     if (hintVals.Count >= MAX_NEXT_STEPS) break;
                     string val = ComposeTextFinal(instrunctions[i]);
                     val = FormatAdvancedPreparationNurse(val);
-                    val = WrapIfLong(val);
+                    val = WrapMedicationLineForUI(val);
                     if (string.IsNullOrWhiteSpace(val)) continue;
+
+                    // Nurse Next: keep only medication-like lines (avoid generic icons/prompts)
+                    bool looksLikeDose = Regex.IsMatch(val, @"\b(mg|mcg|g|mL|mEq|U|units)\b", RegexOptions.IgnoreCase) ||
+                                          val.IndexOf("/kg", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                          val.IndexOf('=') >= 0;
+                    if (!looksLikeDose) continue;
 
                     string key = DedupKeyFromNode(instrunctions[i]);
                     if (dedupAgainstCurrent && curSet.Contains(key)) continue;
@@ -1288,9 +1377,9 @@ public class EventManager : MonoBehaviour
                         instruction = InstructionFinder.FindByTag(instruction, lang);
                     }
                     */
-                    // Compose: For Doctor, include simple calc without colon (e.g., "Amiodarone 5 mg/kg = 125 mg")
+                    // Compose: For Doctor, include simple calc without colon then apply chunk-binding wrapping
                     string instruction = ComposeTextForDoctor(instrunctions[i]);
-                    instruction = WrapIfLong(instruction);
+                    instruction = WrapMedicationLineForUI(instruction);
 
                     if (i == 0) {
                         if (Doc_Cur_1 != null) {
@@ -1349,9 +1438,9 @@ public class EventManager : MonoBehaviour
                 {
                     if (filledDoc >= MAX_NEXT_STEPS) break; 
 
-                    // Doctor: include simple calc and no colon; still wrap long lines
+                    // Doctor: include simple calc and no colon; apply chunk-binding wrapping
                     string val = ComposeTextForDoctor(instrunctions[i]);
-                    val = WrapIfLong(val);
+                    val = WrapMedicationLineForUI(val);
                     if (string.IsNullOrWhiteSpace(val)) continue;
 
                     string key = DedupKeyFromNode(instrunctions[i]);
@@ -2815,6 +2904,51 @@ if (medID == 1) {
                     {
                         var orderedOthers = new List<string>();
                         var newlyOrdered = new List<string>();
+                        // Local formatter: unify Nurse display rule with Doctor (one calc shown)
+                        string ComposeNurseMedLine(SimpleJSON.JSONNode medNode, string medName)
+                        {
+                            if (string.IsNullOrWhiteSpace(medName)) medName = "";
+                            string doseLabel = null;
+                            try
+                            {
+                                var doses = medNode != null ? medNode["doses"] : null;
+                                if (doses != null)
+                                {
+                                    for (int di = 0; di < doses.Count && doseLabel == null; di++)
+                                    {
+                                        var diArr = doses[di]["doseInstances"];
+                                        if (diArr == null) continue;
+                                        for (int ii = 0; ii < diArr.Count; ii++)
+                                        {
+                                            string st = diArr[ii]["status"];
+                                            if (st == "PREPARING" || st == "AUTO_PREPARING")
+                                            {
+                                                doseLabel = doses[di]["label"];
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch {}
+
+                            string perKg = null;
+                            string final = null;
+                            try { perKg = ExtractPerKgMass(doseLabel); } catch {}
+                            if (string.IsNullOrWhiteSpace(perKg)) { try { perKg = ExtractPerKgVol(doseLabel); } catch {} }
+                            if (string.IsNullOrWhiteSpace(perKg)) { try { perKg = ExtractPerKgOther(doseLabel); } catch {} }
+                            try { final = ExtractFinalDoseToken(doseLabel); } catch {}
+
+                            // Do NOT normalize units on the name part
+                            string namePart = CleanMedNameForDisplay(medName);
+                            string dosePart = "";
+                            if (!string.IsNullOrWhiteSpace(perKg)) dosePart += (dosePart.Length>0?" ":"") + perKg;
+                            if (!string.IsNullOrWhiteSpace(final)) dosePart += (dosePart.Length>0?" = ":"=") + final;
+                            try { dosePart = NormalizeUnits(dosePart); dosePart = TidySpacing(dosePart); } catch {}
+                            string composed = string.IsNullOrWhiteSpace(dosePart) ? namePart : (namePart + " " + dosePart);
+                            return WrapMedicationLineForUI(composed);
+                        }
+
                         // Collect non-Amio/Epi ordered meds
                         for (int oi = 0; oi < storedMedJson.Count; oi++)
                         {
@@ -2829,12 +2963,13 @@ if (medID == 1) {
                                 var medinfo2 = MedicationFinder.FindByTag(medIdStr2, lang);
                                 string medName2 = (medinfo2 != null && medinfo2.Length > 0) ? medinfo2[0] : medIdStr2;
                                 medName2 = FindMultiLang(medName2);
-                                orderedOthers.Add(medName2);
+                                string line2 = ComposeNurseMedLine(medNode, medName2);
+                                orderedOthers.Add(line2);
                                 bool wasOrderedBefore = false;
                                 try { wasOrderedBefore = prevOrderedByMedId.ContainsKey(medIdNum2) && prevOrderedByMedId[medIdNum2]; } catch {}
                                 if (!wasOrderedBefore)
                                 {
-                                    newlyOrdered.Add(medName2); // newly ordered this frame
+                                    newlyOrdered.Add(line2); // newly ordered this frame
                                 }
                             }
                         }
@@ -2866,15 +3001,69 @@ if (medID == 1) {
                         }
                         NurseNextPruneTo(expectedKeys);
 
-                        // set Cur_3 from queue head
-                        if (Nurse_Cur_3 != null)
+                        // CHANGE NOTE (2025-09-11, mj): Nurse Current/Next dynamic fill with priority (Epi > Amio)
+                        // 1) 현재(Current): Epinephrine가 최우선, 그다음 Amiodarone, 부족분은 큐에서 순서대로 채움
+                        // 2) 다음(Next): Current에서 사용한 큐 아이템 수만큼 앞으로 당겨 표시하여 자연스럽게 밀림
+                        bool epiOrderedNow = false; // Epi가 PREPARING 상태인지 기록
+                        bool amioOrderedNow = false; // Amio가 PREPARING 상태인지 기록
+                        SimpleJSON.JSONNode epiNodeRef = null; // Epi 노드 참조 저장
+                        SimpleJSON.JSONNode amioNodeRef = null; // Amio 노드 참조 저장
+                        try
                         {
-                            string head = (nurseNextQueue.Count > 0) ? nurseNextQueue[0] : "";
-                            Nurse_Cur_3.text = head;
+                            for (int scan = 0; scan < storedMedJson.Count; scan++) // 두 약물의 현재 상태 계산
+                            {
+                                int mid2 = storedMedJson[scan]["id"]; // 약물 ID 확인
+                                if (mid2 != 1 && mid2 != 5) continue; // Amio(1)/Epi(5) 외에는 스킵
+                                var node2 = storedMedJson[scan]; // 현재 약물 노드 참조
+                                bool hasReady2 = MedHasStatus(node2, "READY"); // READY 여부 확인
+                                bool isOrdered2 = MedHasAnyPreparing(node2); // PREPARING 여부 확인
+                                if (mid2 == 5) { epiOrderedNow = isOrdered2 && !hasReady2; if (epiOrderedNow) epiNodeRef = node2; } // Epi 상태 및 노드 저장
+                                else if (mid2 == 1) { amioOrderedNow = isOrdered2 && !hasReady2; if (amioOrderedNow) amioNodeRef = node2; } // Amio 상태 및 노드 저장
+                            }
+                        }
+                        catch {}
+
+                        // Current 채울 후보 리스트 준비 (우선순위: Epi -> Amio -> 기타 큐)
+                        var currentItems = new System.Collections.Generic.List<string>(3); // Current 표시 문자열 목록
+                        if (epiOrderedNow)
+                        {
+                            string epiTxt = ComposeNurseMedLine(epiNodeRef, FindMultiLang("Epinephrine")); // Epi 표시 통일 규칙 적용
+                            currentItems.Add(epiTxt); // 우선 Epi 추가
+                        }
+                        if (amioOrderedNow)
+                        {
+                            string amioTxt = ComposeNurseMedLine(amioNodeRef, FindMultiLang("Amiodarone")); // Amio 표시 통일 규칙 적용
+                            currentItems.Add(amioTxt); // 다음 Amio 추가
                         }
 
-                        // render NEXT excluding head
-                        NurseNextRender();
+                        // 큐에서 Current의 남는 자리(3칸까지)를 채움
+                        int consumedFromQueue = 0; // Current에 사용한 큐 아이템 수
+                        for (int qi = 0; qi < nurseNextQueue.Count && currentItems.Count < 3; qi++)
+                        {
+                            currentItems.Add(nurseNextQueue[qi]); // 큐의 앞에서부터 채움
+                            consumedFromQueue++; // 소비 카운트 증가
+                        }
+
+                        // Server Hint 사용 시 Current/Next를 덮어쓰지 않도록 게이트
+                        bool allowWriteCurrent = !useServerHintsForNurseCurrent; // 서버 힌트가 아닌 경우만 Current 작성
+                        bool allowWriteNext = !useServerHintsForNurseNext; // 서버 힌트가 아닌 경우만 Next 작성
+
+                        // Current 3칸 업데이트 (허용 시)
+                        if (allowWriteCurrent)
+                        {
+                            if (Nurse_Cur_1 != null) Nurse_Cur_1.text = currentItems.Count > 0 ? currentItems[0] : ""; // 1행 채움 또는 공백
+                            if (Nurse_Cur_2 != null) Nurse_Cur_2.text = currentItems.Count > 1 ? currentItems[1] : ""; // 2행 채움 또는 공백
+                            if (Nurse_Cur_3 != null) Nurse_Cur_3.text = currentItems.Count > 2 ? currentItems[2] : ""; // 3행 채움 또는 공백
+                        }
+
+                        // Next 3칸 업데이트: 큐에서 Current에 사용한 수(consumedFromQueue)만큼 오프셋 적용
+                        if (allowWriteNext)
+                        {
+                            int baseIdx = consumedFromQueue; // Next 시작 오프셋 설정
+                            if (Nurse_Next_1 != null) Nurse_Next_1.text = nurseNextQueue.Count > baseIdx ? nurseNextQueue[baseIdx] : ""; // Next 1행
+                            if (Nurse_Next_2 != null) Nurse_Next_2.text = nurseNextQueue.Count > (baseIdx + 1) ? nurseNextQueue[baseIdx + 1] : ""; // Next 2행
+                            if (Nurse_Next_3 != null) Nurse_Next_3.text = nurseNextQueue.Count > (baseIdx + 2) ? nurseNextQueue[baseIdx + 2] : ""; // Next 3행
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -4551,6 +4740,173 @@ if (medID == 1) {
             string name = null; try { name = FindMultiLang(nm); } catch { name = nm; }
             ApplyMedicationNameOnlyHighlight(name, on);
         }
+    }
+
+    // CHANGE NOTE (2025-09-11, mj): Class-scope helpers for Nurse/Doctor formatting
+    // These mirror the local versions inside UpdateInstructions for use in other code paths.
+    string NormalizeUnits(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.Replace("cc", "mL").Replace("CC", "mL");
+        s = s.Replace("ML", "mL").Replace("Ml", "mL").Replace("ml", "mL");
+        s = s.Replace("MG", "mg").Replace("Mg", "mg");
+        s = s.Replace("KG", "kg").Replace("Kg", "kg");
+        return s;
+    }
+
+    string TidySpacing(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        try
+        {
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"(?<!\s)\( ", " ( ");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\(\s+", "(");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+\)", ")");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @":\s*", ": ");
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"[ \t]{2,}", " ");
+        }
+        catch {}
+        return s.Trim();
+    }
+
+    string ExtractPerKgMass(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        s = NormalizeUnits(s);
+        var m = System.Text.RegularExpressions.Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g)\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return "";
+        string val = m.Groups[1].Value;
+        string unit = m.Groups[2].Value.ToLowerInvariant();
+        if (unit == "g" || unit == "mg" || unit == "mcg")
+        {
+            return val + " " + unit + "/kg";
+        }
+        return "";
+    }
+
+    string ExtractPerKgVol(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        s = NormalizeUnits(s);
+        var m = System.Text.RegularExpressions.Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mL|ml|cc)\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return "";
+        string val = m.Groups[1].Value;
+        return val + " mL/kg";
+    }
+
+    // Include other per-kg units such as mEq/kg, U/kg, units/kg
+    string ExtractPerKgOther(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return "";
+        s = NormalizeUnits(s);
+        var m = System.Text.RegularExpressions.Regex.Match(s, @"([0-9]+(?:\.[0-9]+)?)\s*(mEq|U|units)\s*/\s*kg", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!m.Success) return "";
+        string val = m.Groups[1].Value;
+        string unit = m.Groups[2].Value;
+        if (unit.Equals("units", System.StringComparison.OrdinalIgnoreCase)) unit = "U"; // compact
+        return val + " " + unit + "/kg";
+    }
+
+    // CHANGE NOTE (2025-09-12, mj): Class-scope UI chunk binder + wrapper
+    // Binds numeric+unit (e.g., "125 mg") and per‑kg tokens with NBSP, then applies 3-line wrap logic.
+    string WrapMedicationLineForUI(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        string txt = s;
+        try
+        {
+            // Remove any stray colon between name and calc
+            txt = System.Text.RegularExpressions.Regex.Replace(txt, @"\s*:\s*", " ");
+            // Bind final dose following '=': "= 125 mg" -> "= 125\u00A0mg"
+            txt = System.Text.RegularExpressions.Regex.Replace(txt, @"=\s*([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL|J|mEq|U|units)\b",
+                m => "= " + m.Groups[1].Value + "\u00A0" + m.Groups[2].Value,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Bind per‑kg: include cc/mL/mEq/U
+            txt = System.Text.RegularExpressions.Regex.Replace(txt, @"\b([0-9]+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL|cc|mEq|U|units)\s*/\s*kg\b",
+                m => m.Groups[1].Value + "\u00A0" + m.Groups[2].Value + "/kg",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Collapse extra spaces
+            txt = System.Text.RegularExpressions.Regex.Replace(txt, @"[ \t]{2,}", " ");
+        }
+        catch {}
+        return WrapIfLong(txt);
+    }
+
+    // Compact/clean medication display name tweaks (e.g., remove formulation tag D10W)
+    string CleanMedNameForDisplay(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return name;
+        string s = name;
+        try
+        {
+            // Remove common formulation tags that bloat line length
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"\bD\s*10\s*W\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            // Collapse extra spaces after removals
+            while (s.IndexOf("  ") >= 0) s = s.Replace("  ", " ");
+            s = s.Trim();
+        }
+        catch {}
+        return s;
+    }
+
+    // CHANGE NOTE (2025-09-12, mj): Class-scope 3-line wrapping logic (used by UI wrapper)
+    string WrapIfLong(string composed)
+    {
+        if (string.IsNullOrWhiteSpace(composed)) return composed;
+        int limit = 28;
+        // allow colon-free compact form even if slightly long; wrapping rules below
+
+        string result = composed;
+
+        // Prefer break before per‑kg to keep medication name on line 1
+        try
+        {
+            var mPk = System.Text.RegularExpressions.Regex.Match(result, @"\b(\d+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL|mEq|U|units)\s*/\s*kg\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (mPk.Success && mPk.Index > 0)
+            {
+                int idx = mPk.Index;
+                string left = result.Substring(0, idx).TrimEnd();
+                string right = result.Substring(idx).TrimStart();
+                return left + "\n" + right;
+            }
+        }
+        catch {}
+
+        // Step 1: break after '=' if present (force exactly two lines for calc forms)
+        int eq = result.IndexOf('=');
+        if (eq >= 0 && eq < result.Length - 1)
+        {
+            string left = result.Substring(0, eq + 1).TrimEnd();
+            string right = result.Substring(eq + 1).TrimStart();
+            result = left + "\n" + right;
+            // After enforcing two lines, skip further splitting for calc lines
+            return result;
+        }
+
+        // Step 2: if a line still exceeds limit, break before per‑kg token
+        string[] lines = result.Split('\n');
+        int maxLen = 0; for (int i = 0; i < lines.Length; i++) if (lines[i].Length > maxLen) maxLen = lines[i].Length;
+        if (maxLen > limit)
+        {
+            string raw = composed.Replace("\n", " ");
+            var m = System.Text.RegularExpressions.Regex.Match(raw, @"\b(\d+(?:\.[0-9]+)?)\s*(mg|mcg|g|mL)\s*/\s*kg\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success && m.Index > 0)
+            {
+                string left = raw.Substring(0, m.Index).TrimEnd();
+                string right = raw.Substring(m.Index).TrimStart();
+                result = left + "\n" + right;
+            }
+        }
+
+        // Step 3: if still too long, try splitting before units to keep at most 2 lines
+        lines = result.Split('\n');
+        if (lines.Length > 2)
+        {
+            // Join extras back to the second line to enforce 2 lines max
+            result = lines[0] + "\n" + string.Join(" ", lines, 1, lines.Length - 1);
+        }
+        return result;
     }
 
 }
