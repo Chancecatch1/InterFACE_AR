@@ -2348,6 +2348,9 @@ if (medID == 1) {
                                     SimpleJSON.JSONNode medNode1 = storedMedJson[i];
                                     bool hasReady = MedHasStatus(medNode1, "READY");
                                     bool isOrdered = MedHasAnyPreparing(medNode1); // PREPARING or AUTO_PREPARING
+                                    // Fallback to counters when SSE omits instance statuses
+                                    if (!isOrdered) { try { var ds = medNode1["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int pc = 0; try { pc = ds[di2]["preparingCounter"]; } catch {} if (pc > 0) { isOrdered = true; break; } } } } catch {} }
+                                    if (!hasReady) { try { var ds = medNode1["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int rc = 0; try { rc = ds[di2]["readyCounter"]; } catch {} if (rc > 0) { hasReady = true; break; } } } } catch {} }
 
                                     bool highlight = isOrdered && !hasReady;
 
@@ -2407,6 +2410,9 @@ if (medID == 1) {
                                 SimpleJSON.JSONNode medNode5 = storedMedJson[i];
                                 bool hasReady = MedHasStatus(medNode5, "READY");
                                 bool isOrdered = MedHasAnyPreparing(medNode5);
+                                // Fallback to counters when SSE omits instance statuses
+                                if (!isOrdered) { try { var ds = medNode5["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int pc = 0; try { pc = ds[di2]["preparingCounter"]; } catch {} if (pc > 0) { isOrdered = true; break; } } } } catch {} }
+                                if (!hasReady) { try { var ds = medNode5["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int rc = 0; try { rc = ds[di2]["readyCounter"]; } catch {} if (rc > 0) { hasReady = true; break; } } } } catch {} }
 
                                 bool highlight = isOrdered && !hasReady;
 
@@ -2957,6 +2963,15 @@ if (medID == 1) {
                                             }
                                         }
                                     }
+                                    // Fallback: SSE only sends READY instances, so we need to use preparingCounter to determine the dose
+                                    if (doseLabel == null)
+                                    {
+                                        for (int di = 0; di < doses.Count && doseLabel == null; di++)
+                                        {
+                                            int pc = 0; try { pc = doses[di]["preparingCounter"]; } catch {}
+                                            if (pc > 0) { doseLabel = doses[di]["label"]; break; }
+                                        }
+                                    }
                                 }
                             }
                             catch {}
@@ -3042,10 +3057,21 @@ if (medID == 1) {
                                 int mid2 = storedMedJson[scan]["id"];
                                 if (mid2 != 1 && mid2 != 5) continue;
                                 var node2 = storedMedJson[scan];
-                                bool hasReady2 = MedHasStatus(node2, "READY");
-                                bool isOrdered2 = MedHasAnyPreparing(node2);
-                                if (mid2 == 5) { epiOrderedNow = isOrdered2 && !hasReady2; if (epiOrderedNow) epiNodeRef = node2; }
-                                else if (mid2 == 1) { amioOrderedNow = isOrdered2 && !hasReady2; if (amioOrderedNow) amioNodeRef = node2; }
+                                bool hasPrepCount2 = false;
+                                try
+                                {
+                                    var doses2 = node2["doses"]; if (doses2 != null)
+                                    {
+                                        for (int di = 0; di < doses2.Count; di++)
+                                        {
+                                            int pre2 = 0; try { pre2 = doses2[di]["preparingCounter"]; } catch {}
+                                            if (pre2 > 0) { hasPrepCount2 = true; break; }
+                                        }
+                                    }
+                                }
+                                catch {}
+                                if (mid2 == 5) { epiOrderedNow = hasPrepCount2; if (epiOrderedNow) epiNodeRef = node2; }
+                                else if (mid2 == 1) { amioOrderedNow = hasPrepCount2; if (amioOrderedNow) amioNodeRef = node2; }
                             }
                         }
                         catch {}
