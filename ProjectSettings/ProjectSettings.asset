@@ -589,7 +589,7 @@ PlayerSettings:
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
   metroPackageName: InterfaceARHXI
-  metroPackageVersion: 1.1.0.0
+  metroPackageVersion: 1.2.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
   metroCertificatePassword: Hb-=<<84>4>
   metroCertificateSubject: mj
@@ -615,7 +615,7 @@ PlayerSettings:
       PrivateNetworkClientServer: True
       SpatialPerception: True
       InternetClient: True
-      WebCam: True
+      WebCam: False
       Microphone: True
   metroTargetDeviceFamilies: {}
   metroFTAName: 

@@ -186,7 +186,9 @@ public class MedicationEvent : MonoBehaviour
                                         string idStr = di["id"];
                                         bool auto = false;
                                         try { auto = di["autoPrescribed"]; } catch {}
+#if UNITY_EDITOR
                                         Debug.Log($"preMinus scan1 status={st}, autoPrescribed={auto}, id={idStr}");
+#endif
                                         if (st == "READY") { chosenId = idStr; break; }
                                     }
 
@@ -197,13 +199,17 @@ public class MedicationEvent : MonoBehaviour
                                             string idStr = di["id"];
                                             bool auto = false;
                                             try { auto = di["autoPrescribed"]; } catch {}
+#if UNITY_EDITOR
                                             Debug.Log($"preMinus scan2 status={st}, autoPrescribed={auto}, id={idStr}");
+#endif
                                             if (st == "PREPARING" && auto == false) { chosenId = idStr; break; }
                                         }
                                     }
 
                                     if (chosenId != null) {
+#if UNITY_EDITOR
                                         Debug.Log($"preMinus choose id={chosenId} (READY preferred; else PREPARING non-auto)");
+#endif
                                         StartCoroutine(minusMedications(medicationId, doseId, chosenId));
                                     } else {
                                         Debug.LogWarning($"preMinus: No cancellable instances found for med={medicationId}, dose={doseId}. Skipping AUTO_PREPARING by design.");

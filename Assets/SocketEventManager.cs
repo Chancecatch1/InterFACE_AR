@@ -24,8 +24,12 @@ public class SocketEventManager : MonoBehaviour
             Debug.Log("socket.OnConnected");
         };
 
-        Debug.Log("Connecting...");
+#if UNITY_EDITOR
+        Debug.Log("Connecting (Editor)...");
         socket.Connect();
+#else
+        Debug.Log("Socket.IO disabled on device build");
+#endif
     }
 
     // Update is called once per frame

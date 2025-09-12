@@ -97,7 +97,8 @@ namespace EvtSource
                 using (HttpResponseMessage response = await Hc.GetAsync(Uri, HttpCompletionOption.ResponseHeadersRead))
                 {
                     response.EnsureSuccessStatusCode();
-                    if (response.Headers.TryGetValues("content-type", out IEnumerable<string> ctypes) || ctypes?.Contains("text/event-stream") == false)
+                    var mediaType = response.Content?.Headers?.ContentType?.MediaType;
+                    if (!string.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
                     {
                         throw new ArgumentException("Specified URI does not return server-sent events");
                     }

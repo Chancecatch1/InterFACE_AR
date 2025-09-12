@@ -248,6 +248,10 @@ public class EventManager : MonoBehaviour
     // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent
     double bodyWeightKg = 0;
 
+    // CHANGE NOTE (2025-09-12, mj): Keep track of last SSE medication snapshot and initialization status
+    SimpleJSON.JSONNode _lastMedicationModelFromSse = null;
+    bool _medInitDone = false;
+
     // Helper to robustly find TMP by tag, even if tag is on a parent
     TextMeshProUGUI GetTMPByTag(string tagName)
     {
@@ -1732,7 +1736,6 @@ public class EventManager : MonoBehaviour
         {
             m_queueAction.Dequeue().Invoke();
         }
-        refMed();
     }
 
     public void ToMain()
@@ -1905,8 +1908,10 @@ public class EventManager : MonoBehaviour
     }
 
     public void currentStatus (SimpleJSON.JSONNode response) {
+#if UNITY_EDITOR
         Debug.Log("currentStatus");
         Debug.Log(response);
+#endif
 
         // Debug.Log("idx: " + idx);
 
@@ -1917,7 +1922,9 @@ public class EventManager : MonoBehaviour
         SimpleJSON.JSONNode cprHintModel = response["cprHintModel"];
         SimpleJSON.JSONNode patientModel = response["patientModel"];
 
+#if UNITY_EDITOR
         Debug.Log(cprProtocolModel);
+#endif
 
         if (cprProtocolModel != null) {
             m_queueAction.Enqueue(() => {
@@ -1977,7 +1984,13 @@ public class EventManager : MonoBehaviour
         // Detect Confirmation of Medication
         SimpleJSON.JSONNode cprMedicationModel = response["cprMedicationModel"];
         if (cprMedicationModel != null) {
-            StartCoroutine(medicationInitialize(MedicationFinder.getProcessId()));
+            // CHANGE NOTE (2025-09-12, mj): SSE medication update optimization
+            // Instead of requesting new medication model on every SSE, buffer and apply only after initialization is complete
+            _lastMedicationModelFromSse = cprMedicationModel;
+            if (_medInitDone)
+            {
+                m_queueAction.Enqueue(() => medication(_lastMedicationModelFromSse));
+            }
             SimpleJSON.JSONNode meds = cprMedicationModel["medicationModels"];
             if (meds.Count == 1) {
                     string medID = meds[0]["id"];
@@ -3002,67 +3015,60 @@ if (medID == 1) {
                         NurseNextPruneTo(expectedKeys);
 
                         // CHANGE NOTE (2025-09-11, mj): Nurse Current/Next dynamic fill with priority (Epi > Amio)
-                        // 1) 현재(Current): Epinephrine가 최우선, 그다음 Amiodarone, 부족분은 큐에서 순서대로 채움
-                        // 2) 다음(Next): Current에서 사용한 큐 아이템 수만큼 앞으로 당겨 표시하여 자연스럽게 밀림
-                        bool epiOrderedNow = false; // Epi가 PREPARING 상태인지 기록
-                        bool amioOrderedNow = false; // Amio가 PREPARING 상태인지 기록
-                        SimpleJSON.JSONNode epiNodeRef = null; // Epi 노드 참조 저장
-                        SimpleJSON.JSONNode amioNodeRef = null; // Amio 노드 참조 저장
+                        bool epiOrderedNow = false; 
+                        bool amioOrderedNow = false;
+                        SimpleJSON.JSONNode epiNodeRef = null;
+                        SimpleJSON.JSONNode amioNodeRef = null;
                         try
                         {
-                            for (int scan = 0; scan < storedMedJson.Count; scan++) // 두 약물의 현재 상태 계산
+                            for (int scan = 0; scan < storedMedJson.Count; scan++)
                             {
-                                int mid2 = storedMedJson[scan]["id"]; // 약물 ID 확인
-                                if (mid2 != 1 && mid2 != 5) continue; // Amio(1)/Epi(5) 외에는 스킵
-                                var node2 = storedMedJson[scan]; // 현재 약물 노드 참조
-                                bool hasReady2 = MedHasStatus(node2, "READY"); // READY 여부 확인
-                                bool isOrdered2 = MedHasAnyPreparing(node2); // PREPARING 여부 확인
-                                if (mid2 == 5) { epiOrderedNow = isOrdered2 && !hasReady2; if (epiOrderedNow) epiNodeRef = node2; } // Epi 상태 및 노드 저장
-                                else if (mid2 == 1) { amioOrderedNow = isOrdered2 && !hasReady2; if (amioOrderedNow) amioNodeRef = node2; } // Amio 상태 및 노드 저장
+                                int mid2 = storedMedJson[scan]["id"];
+                                if (mid2 != 1 && mid2 != 5) continue;
+                                var node2 = storedMedJson[scan];
+                                bool hasReady2 = MedHasStatus(node2, "READY");
+                                bool isOrdered2 = MedHasAnyPreparing(node2);
+                                if (mid2 == 5) { epiOrderedNow = isOrdered2 && !hasReady2; if (epiOrderedNow) epiNodeRef = node2; }
+                                else if (mid2 == 1) { amioOrderedNow = isOrdered2 && !hasReady2; if (amioOrderedNow) amioNodeRef = node2; }
                             }
                         }
                         catch {}
 
-                        // Current 채울 후보 리스트 준비 (우선순위: Epi -> Amio -> 기타 큐)
-                        var currentItems = new System.Collections.Generic.List<string>(3); // Current 표시 문자열 목록
+                        var currentItems = new System.Collections.Generic.List<string>(3);
                         if (epiOrderedNow)
                         {
-                            string epiTxt = ComposeNurseMedLine(epiNodeRef, FindMultiLang("Epinephrine")); // Epi 표시 통일 규칙 적용
-                            currentItems.Add(epiTxt); // 우선 Epi 추가
+                            string epiTxt = ComposeNurseMedLine(epiNodeRef, FindMultiLang("Epinephrine"));
+                            currentItems.Add(epiTxt);
                         }
                         if (amioOrderedNow)
                         {
-                            string amioTxt = ComposeNurseMedLine(amioNodeRef, FindMultiLang("Amiodarone")); // Amio 표시 통일 규칙 적용
-                            currentItems.Add(amioTxt); // 다음 Amio 추가
+                            string amioTxt = ComposeNurseMedLine(amioNodeRef, FindMultiLang("Amiodarone"));
+                            currentItems.Add(amioTxt);
                         }
 
-                        // 큐에서 Current의 남는 자리(3칸까지)를 채움
-                        int consumedFromQueue = 0; // Current에 사용한 큐 아이템 수
+                        int consumedFromQueue = 0;
                         for (int qi = 0; qi < nurseNextQueue.Count && currentItems.Count < 3; qi++)
                         {
-                            currentItems.Add(nurseNextQueue[qi]); // 큐의 앞에서부터 채움
-                            consumedFromQueue++; // 소비 카운트 증가
+                            currentItems.Add(nurseNextQueue[qi]);
+                            consumedFromQueue++;
                         }
 
-                        // Server Hint 사용 시 Current/Next를 덮어쓰지 않도록 게이트
-                        bool allowWriteCurrent = !useServerHintsForNurseCurrent; // 서버 힌트가 아닌 경우만 Current 작성
-                        bool allowWriteNext = !useServerHintsForNurseNext; // 서버 힌트가 아닌 경우만 Next 작성
+                        bool allowWriteCurrent = !useServerHintsForNurseCurrent;
+                        bool allowWriteNext = !useServerHintsForNurseNext;
 
-                        // Current 3칸 업데이트 (허용 시)
                         if (allowWriteCurrent)
                         {
-                            if (Nurse_Cur_1 != null) Nurse_Cur_1.text = currentItems.Count > 0 ? currentItems[0] : ""; // 1행 채움 또는 공백
-                            if (Nurse_Cur_2 != null) Nurse_Cur_2.text = currentItems.Count > 1 ? currentItems[1] : ""; // 2행 채움 또는 공백
-                            if (Nurse_Cur_3 != null) Nurse_Cur_3.text = currentItems.Count > 2 ? currentItems[2] : ""; // 3행 채움 또는 공백
+                            if (Nurse_Cur_1 != null) Nurse_Cur_1.text = currentItems.Count > 0 ? currentItems[0] : "";
+                            if (Nurse_Cur_2 != null) Nurse_Cur_2.text = currentItems.Count > 1 ? currentItems[1] : "";
+                            if (Nurse_Cur_3 != null) Nurse_Cur_3.text = currentItems.Count > 2 ? currentItems[2] : "";
                         }
 
-                        // Next 3칸 업데이트: 큐에서 Current에 사용한 수(consumedFromQueue)만큼 오프셋 적용
                         if (allowWriteNext)
                         {
-                            int baseIdx = consumedFromQueue; // Next 시작 오프셋 설정
-                            if (Nurse_Next_1 != null) Nurse_Next_1.text = nurseNextQueue.Count > baseIdx ? nurseNextQueue[baseIdx] : ""; // Next 1행
-                            if (Nurse_Next_2 != null) Nurse_Next_2.text = nurseNextQueue.Count > (baseIdx + 1) ? nurseNextQueue[baseIdx + 1] : ""; // Next 2행
-                            if (Nurse_Next_3 != null) Nurse_Next_3.text = nurseNextQueue.Count > (baseIdx + 2) ? nurseNextQueue[baseIdx + 2] : ""; // Next 3행
+                            int baseIdx = consumedFromQueue;
+                            if (Nurse_Next_1 != null) Nurse_Next_1.text = nurseNextQueue.Count > baseIdx ? nurseNextQueue[baseIdx] : "";
+                            if (Nurse_Next_2 != null) Nurse_Next_2.text = nurseNextQueue.Count > (baseIdx + 1) ? nurseNextQueue[baseIdx + 1] : "";
+                            if (Nurse_Next_3 != null) Nurse_Next_3.text = nurseNextQueue.Count > (baseIdx + 2) ? nurseNextQueue[baseIdx + 2] : "";
                         }
                     }
                 }
@@ -3167,7 +3173,16 @@ if (medID == 1) {
                 string json = request.downloadHandler.text;
                 medications = SimpleJSON.JSON.Parse(json);
                 Debug.Log(medications);
-                medication(medications);
+                _medInitDone = true; // mark initialization complete
+                // CHANGE NOTE (2025-09-12, mj): Apply buffered SSE snapshot after initialization (main thread queue)
+                if (_lastMedicationModelFromSse != null)
+                {
+                    m_queueAction.Enqueue(() => medication(_lastMedicationModelFromSse));
+                }
+                else
+                {
+                    m_queueAction.Enqueue(() => medication(medications));
+                }
             }
 
         }
@@ -3242,7 +3257,9 @@ if (medID == 1) {
         }
         evt = new EventSourceReader(new Uri(URL)).Start();
         evt.MessageReceived += (object sender, EventSourceMessageEventArgs e) => {
+#if UNITY_EDITOR
             Debug.Log($"{e.Event} : {e.Message}");
+#endif
             SimpleJSON.JSONNode json = SimpleJSON.JSON.Parse(e.Message);
             currentStatus(json);
         };
