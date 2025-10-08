@@ -243,7 +243,7 @@ public class EventManager : MonoBehaviour
 
     //Multi language support
     //en, fr
-    string lang = "en";
+    string lang = "fr";
     SimpleJSON.JSONNode multi;
     // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent
     double bodyWeightKg = 0;
