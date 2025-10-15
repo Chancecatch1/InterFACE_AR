@@ -2752,6 +2752,30 @@ if (medID == 1) {
                                     jjj++;
                                 }
                             }
+                            // CHANGE NOTE (2025-10-15, mj)
+                            // Why: Insulin row was not highlighted when ordered (PREPARING/AUTO_PREPARING) like other medications.
+                            // What Changed: Added highlight logic for Insulin (medID 9) consistent with Amiodarone and Epinephrine.
+                            // Behaviour: Highlight entire row (all 5 cells) when ORDERED and no READY instances; remove highlight otherwise.
+                            // Note: Use ApplyMedicationListRowHighlight for full row highlighting (like Amio/Epi), not just name highlighting.
+                            {
+                                SimpleJSON.JSONNode medNode9 = storedMedJson[i];
+                                bool hasReady = MedHasStatus(medNode9, "READY");
+                                bool isOrdered = MedHasAnyPreparing(medNode9);
+                                // Fallback to counters when SSE omits instance statuses
+                                if (!isOrdered) { try { var ds = medNode9["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int pc = 0; try { pc = ds[di2]["preparingCounter"]; } catch {} if (pc > 0) { isOrdered = true; break; } } } } catch {} }
+                                if (!hasReady) { try { var ds = medNode9["doses"]; if (ds != null) { for (int di2 = 0; di2 < ds.Count; di2++) { int rc = 0; try { rc = ds[di2]["readyCounter"]; } catch {} if (rc > 0) { hasReady = true; break; } } } } catch {} }
+
+                                bool highlight = isOrdered && !hasReady;
+
+                                // Use full row highlight like Amiodarone/Epinephrine (not just name)
+                                if (_uiNameByMedId.TryGetValue(9, out var nm9))
+                                {
+                                    ApplyMedicationListRowHighlight(nm9, highlight);
+                                }
+                                if (!highlight) {
+                                    SetOrderNormalForId(9);
+                                }
+                            }
                         }
                         if (medID == 8) {
                             if (GluCount == null && GameObject.FindWithTag("GluCount") != null) {
@@ -4796,8 +4820,11 @@ if (medID == 1) {
         if (medId <= 0) return;
         if (_uiNameByMedId.TryGetValue(medId, out var nm))
         {
-            string name = null; try { name = FindMultiLang(nm); } catch { name = nm; }
-            ApplyMedicationNameOnlyHighlight(name, on);
+            // CHANGE NOTE (2025-10-15, mj)
+            // Why: UI displays English medication names even in French mode, so we must match against the original English name.
+            // What Changed: Use the original 'nm' from _uiNameByMedId directly instead of translating via FindMultiLang.
+            // Behaviour: Medication row highlighting now works correctly in both EN and FR modes.
+            ApplyMedicationNameOnlyHighlight(nm, on);
         }
     }
 
