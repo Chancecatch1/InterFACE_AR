@@ -242,8 +242,8 @@ public class EventManager : MonoBehaviour
     private string filePath;
 
     //Multi language support
-    //en, fr
-    string lang = "fr";
+    //en, fr, it
+    string lang = "it";
     SimpleJSON.JSONNode multi;
     // Patient weight (kg) from patientModel; used for dose computations when server parameter is absent
     double bodyWeightKg = 0;
@@ -341,6 +341,9 @@ public class EventManager : MonoBehaviour
             Nurse_Next_2 = GetTMPByTag("Nurse_Next_2");
             Nurse_Next_3 = GetTMPByTag("Nurse_Next_3");
         }
+
+        // Adjust font size for French/Italian after components are initialized
+        AdjustFontSizeForLanguage(lang);
 
         if (GameObject.FindWithTag("CardiacRhythm") != null) {
            CardiacRhythm = GameObject.FindWithTag("CardiacRhythm").GetComponent<TextMeshProUGUI>();
@@ -532,6 +535,8 @@ public class EventManager : MonoBehaviour
 
         if (multi != null) {
             GameObject[] allGameObjects = FindObjectsOfType<GameObject>(true);  // true: inactive objects
+            var medUIObj = GameObject.FindWithTag("Medication_UI");  // Cache once
+            
             foreach (var go in allGameObjects)
             {
                 TextMeshProUGUI textObj = go.GetComponent<TextMeshProUGUI>();
@@ -539,17 +544,25 @@ public class EventManager : MonoBehaviour
                 {
                     string originalText = textObj.text?.Trim();
 
-                    if (!string.IsNullOrEmpty(originalText))
+                    if (!string.IsNullOrWhiteSpace(originalText))
                     {
-                        // if there is a translated text, replace it, else log
+                        // if there is a translated text, replace it; otherwise keep original (no warning)
                         if (multi[originalText] != null)
                         {
                             textObj.text = multi[originalText];
+                            
+                            // Enable word wrapping and auto-sizing for medication list items to fit in box
+                            if (medUIObj != null && go.transform.IsChildOf(medUIObj.transform))
+                            {
+                                textObj.enableWordWrapping = true;
+                                textObj.overflowMode = TMPro.TextOverflowModes.Overflow;
+                                // Enable auto-sizing to fit text in container
+                                textObj.enableAutoSizing = true;
+                                textObj.fontSizeMin = 8;
+                                textObj.fontSizeMax = textObj.fontSize;
+                            }
                         }
-                        else
-                        {
-                            Debug.LogWarning("Missing Translation Text: " + originalText);
-                        }
+                        // If translation not found, keep original text without warning
                     }
                 }
             }
@@ -574,6 +587,43 @@ public class EventManager : MonoBehaviour
         } else {
             return originalText;
         }
+    }
+
+    void AdjustFontSizeForLanguage(string lang)
+    {
+        if (lang != "fr" && lang != "it") return;
+        
+        // CHANGE NOTE (2025-10-28): French/Italian - increase font size + enable auto-sizing
+        // No complex wrapping rules applied
+        void ApplySettings(TextMeshProUGUI tmp)
+        {
+            if (tmp != null)
+            {
+                // Increase base font size by 20%
+                tmp.fontSize *= 1.2f;
+                
+                // Enable auto-sizing to fit in box
+                tmp.enableAutoSizing = true;
+                tmp.fontSizeMin = 8;  // Minimum readable size
+                tmp.fontSizeMax = tmp.fontSize;  // Max = increased size
+            }
+        }
+        
+        // Doctor UI
+        ApplySettings(Doc_Cur_1);
+        ApplySettings(Doc_Cur_2);
+        ApplySettings(Doc_Cur_3);
+        ApplySettings(Doc_Next_1);
+        ApplySettings(Doc_Next_2);
+        ApplySettings(Doc_Next_3);
+        
+        // Nurse UI
+        ApplySettings(Nurse_Cur_1);
+        ApplySettings(Nurse_Cur_2);
+        ApplySettings(Nurse_Cur_3);
+        ApplySettings(Nurse_Next_1);
+        ApplySettings(Nurse_Next_2);
+        ApplySettings(Nurse_Next_3);
     }
     
 
@@ -630,6 +680,9 @@ public class EventManager : MonoBehaviour
                 }
                 else if (lang == "fr"){
                     txt.text = name + "\n" + prettyDose + " administré";
+                }
+                else if (lang == "it"){
+                    txt.text = name + "\n" + prettyDose + " somministrato";
                 }
             } else if (type == 1 && notiCprPref != null) {
                 GameObject myInstance = Instantiate(notiCprPref, notiTransform);
@@ -757,6 +810,10 @@ public class EventManager : MonoBehaviour
             string WrapIfLong(string composed)
             {
                 if (string.IsNullOrWhiteSpace(composed)) return composed;
+                
+                // CHANGE NOTE (2025-10-28): Skip wrapping for French/Italian - they use auto-sizing
+                if (lang == "fr" || lang == "it") return composed;
+                
                 // Bind numbers and units to avoid bad breaks
                 try
                 {
@@ -1206,7 +1263,17 @@ public class EventManager : MonoBehaviour
 
                     // Final composition: "<base> at <absoluteJ> (<perKgJ>)"
                     string composed = baseName;
-                    if (!string.IsNullOrWhiteSpace(finalJ)) composed += " at " + finalJ;
+                    if (!string.IsNullOrWhiteSpace(finalJ)) 
+                    {
+                        if (lang == "fr" || lang == "it")
+                        {
+                            composed += " " + finalJ;
+                        }
+                        else
+                        {
+                            composed += " at " + finalJ;
+                        }
+                    }
                     if (!string.IsNullOrWhiteSpace(perKgJ)) composed += " (" + perKgJ + ")";
                     composed = TidySpacing(composed);
                     return TightenDoctorTokens(composed);
@@ -1889,10 +1956,7 @@ public class EventManager : MonoBehaviour
                             PressableButton btn = myInstance.transform.GetComponent<PressableButton>();
                             btn.OnClicked.AddListener(() => {
                                 Init_Tasks();
-                                startConnection(sessionJSON["processId"], sessionJSON["shortCode"]);
-                                StartCoroutine(algoInit(sessionJSON["processId"]));
-                                StartCoroutine(medicationInitialize(sessionJSON["processId"]));
-                                StartCoroutine(timerInit(sessionJSON["processId"]));
+                                StartCoroutine(InitializeAndConnect(sessionJSON["processId"], sessionJSON["shortCode"]));
                             });
                         }
                     }
@@ -1978,6 +2042,8 @@ public class EventManager : MonoBehaviour
                         TextMeshProUGUI txt = bw.GetComponent<TextMeshProUGUI>();
                         if (lang == "fr")
                             txt.text = $" Poids corporel : {weightStr} kg";
+                        else if (lang == "it")
+                            txt.text = $" Peso corporeo: {weightStr} kg";
                         else
                             txt.text = $" Body weight: {weightStr} kg";
                     }
@@ -3308,6 +3374,20 @@ if (medID == 1) {
         }
     }
 
+    // Start SSE connection after completing all initializations
+    IEnumerator InitializeAndConnect(string processId, string shortCode)
+    {
+        // 1. Initialize timer, algorithm, medication data sequentially
+        yield return StartCoroutine(timerInit(processId));
+        yield return StartCoroutine(algoInit(processId));
+        yield return StartCoroutine(medicationInitialize(processId));
+        
+        // 2. Start SSE connection after all initializations are complete
+        startConnection(processId, shortCode);
+        
+        Debug.Log($"[EventManager] All initialization complete, SSE connected for {shortCode}");
+    }
+    
     public void startConnection (string processId, string shortCode)
     {
         CurrentSession.text = shortCode;
@@ -4937,9 +5017,14 @@ if (medID == 1) {
     }
 
     // CHANGE NOTE (2025-09-12, mj): Class-scope 3-line wrapping logic (used by UI wrapper)
+    // CHANGE NOTE (2025-10-28): Only apply to English - French/Italian use auto-sizing instead
     string WrapIfLong(string composed)
     {
         if (string.IsNullOrWhiteSpace(composed)) return composed;
+        
+        // Skip complex wrapping for French/Italian - they use auto-sizing
+        if (lang == "fr" || lang == "it") return composed;
+        
         int limit = 28;
         // allow colon-free compact form even if slightly long; wrapping rules below
 

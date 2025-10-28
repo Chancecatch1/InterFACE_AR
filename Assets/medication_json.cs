@@ -17,12 +17,20 @@ static public class MedicationFinder {
     static SimpleJSON.JSONNode fr_json = SimpleJSON.JSON.Parse(FR_JSONString);
     static SimpleJSON.JSONNode fr_json2 = SimpleJSON.JSON.Parse(FR_JSONString2);
 
+    //it
+    private static string IT_JSONString = Resources.Load<TextAsset>("it_medications").ToString();
+    private static string IT_JSONString2 = Resources.Load<TextAsset>("it_medicationslabels").ToString();
+    static SimpleJSON.JSONNode it_json = SimpleJSON.JSON.Parse(IT_JSONString);
+    static SimpleJSON.JSONNode it_json2 = SimpleJSON.JSON.Parse(IT_JSONString2);
+
     static public string[] FindByTag (string a, string lang) {
         string[] returnArr = new string[2];
         SimpleJSON.JSONNode medarr = en_json["medicationModels"];
 
         if (lang == "fr") {
             medarr = fr_json["medicationModels"];
+        } else if (lang == "it") {
+            medarr = it_json["medicationModels"];
         }
 
         // Debug.Log(medarr);
@@ -42,6 +50,8 @@ static public class MedicationFinder {
 
         if (lang == "fr") {
             meds = fr_json2["MEDICATION"];
+        } else if (lang == "it") {
+            meds = it_json2["MEDICATION"];
         }
 
         string ret = meds[a];

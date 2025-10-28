@@ -13,7 +13,7 @@ PlayerSettings:
   useOnDemandResources: 0
   accelerometerFrequency: 0
   companyName: HXI_Lab
-  productName: InterFACE_AR_FR
+  productName: InterFACE_AR_1.3_IT
   defaultCursor: {fileID: 0}
   cursorHotspot: {x: 0, y: 0}
   m_SplashScreenBackgroundColor: {r: 0.12156863, g: 0.12156863, b: 0.1254902, a: 1}
@@ -136,7 +136,7 @@ PlayerSettings:
   vulkanEnableLateAcquireNextImage: 0
   vulkanEnableCommandBufferRecycling: 1
   loadStoreDebugModeEnabled: 0
-  bundleVersion: 1.2
+  bundleVersion: 1.3
   preloadedAssets: []
   metroInputSource: 0
   wsaTransparentSwapchain: 0
@@ -594,13 +594,13 @@ PlayerSettings:
   m_RenderingPath: 1
   m_MobileRenderingPath: 1
   metroPackageName: InterfaceARHXI
-  metroPackageVersion: 1.2.0.0
+  metroPackageVersion: 1.3.0.0
   metroCertificatePath: Assets/WSATestCertificate.pfx
   metroCertificatePassword: Hb-=<<84>4>
   metroCertificateSubject: mj
   metroCertificateIssuer: mj
   metroCertificateNotAfter: 003499fcfa3ddd01
-  metroApplicationDescription: HXI_AR_Application_FR
+  metroApplicationDescription: HXI_AR_Application_1.3_IT
   wsaImages: {}
   metroTileShortName: InterFACE_AR
   metroTileShowName: 0

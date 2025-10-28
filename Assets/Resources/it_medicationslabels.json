@@ -1,0 +1,25 @@
+{
+    "MEDICATION": {
+        "TITLE": "Farmaco",
+        "TITLE_PLURIAL": "Farmaci",
+        "AMIODARONE": "Amiodarone",
+        "ATROPINE": "Atropina",
+        "CALCIUM_CHLORIDE": "Calcio cloruro 10%",
+        "CALCIUM_GLUCONATE": "Calcio gluconato 10%",
+        "EPINEPHRINE": "Adrenalina",
+        "ETOMIDATE": "Etomidato",
+        "FENTANYL": "Fentanile",
+        "GLUCOSE_D10W": "Glucosio D10% (dose iniziale)",
+        "INSULIN": "Insulina (dose iniziale)",
+        "KCI": "KCI (Cloruro di potassio)",
+        "KETAMINE": "Ketamina",
+        "LIDOCAINE": "Lidocaina",
+        "MIDAZOLAM": "Midazolam",
+        "MORPHINE": "Morfina",
+        "NS": "SF 0.9%",
+        "ROCURONIUM": "Rocuronio",
+        "SALBUTAMOL": "Salbutamolo",
+        "SODIUM_BICARBONATE": "Bicarbonato di sodio 8.4%",
+        "SUCCINYLCHOLINE": "Succinilcolina"
+    }
+}
